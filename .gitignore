@@ -1,7 +1,15 @@
-# Environment variables
+# Environment variables - comprehensive pattern
 .env
 **/.env
 .env.*
+.env.local
+.env.*.local
+.env.development
+.env.test
+.env.production
+.env.development.local
+.env.test.local
+.env.production.local
 
 # Cache and data
 **/cache/
@@ -22,6 +30,3 @@ node_modules/
 dist/
 build/
 *.log
-
-# Local environment variables
-.env.local
