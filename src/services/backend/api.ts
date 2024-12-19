@@ -25,6 +25,33 @@ class BackendAPI {
     return response.json();
   }
 
+  async getRecentArticles() {
+    try {
+      console.log('Fetching recent articles...');
+      const response = await retry(
+        () => fetch(`${this.baseUrl}/api/news`),
+        {
+          attempts: BACKEND_CONFIG.RETRY_ATTEMPTS,
+          delay: BACKEND_CONFIG.RETRY_DELAY,
+          onError: (error, attempt) => {
+            console.warn(`Recent articles fetch attempt ${attempt} failed:`, error);
+          }
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch recent articles');
+      }
+
+      const data = await response.json();
+      console.log(`Successfully fetched ${data.length} articles from database`);
+      return data;
+    } catch (error) {
+      console.error('Recent articles fetch failed:', error);
+      throw error;
+    }
+  }
+
   async scrapeNews(forceFresh = false) {
     try {
       console.log('Initiating news scraping...');

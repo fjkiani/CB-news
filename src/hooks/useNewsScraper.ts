@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { RawNewsArticle } from '../services/news/types';
 import { backendAPI } from '../services/backend/api';
+import { supabase } from '../services/supabase/client';
+
 
 export function useNewsScraper(refreshInterval = 300000) {
   const [news, setNews] = useState<RawNewsArticle[]>([]);
@@ -14,11 +16,11 @@ export function useNewsScraper(refreshInterval = 300000) {
     const fetchNews = async (forceFresh = false) => {
       try {
         setLoading(true);
-        console.log('Fetching news articles...');
-        const articles = await backendAPI.scrapeNews(forceFresh);
+        const articles = forceFresh 
+          ? await backendAPI.scrapeNews(true)
+          : await backendAPI.getRecentArticles();
         
         if (mounted) {
-          console.log(`Setting ${articles.length} articles`);
           setNews(articles);
           setError(null);
         }
@@ -34,25 +36,38 @@ export function useNewsScraper(refreshInterval = 300000) {
       }
     };
 
-    const scheduleNextFetch = () => {
-      timeoutId = window.setTimeout(() => {
-        fetchNews(true).then(() => {
-          if (mounted) {
-            scheduleNextFetch();
-          }
-        });
-      }, refreshInterval);
-    };
+    fetchNews();
 
-    fetchNews().then(() => {
-      if (mounted) {
-        scheduleNextFetch();
-      }
-    });
+    const subscription = supabase
+      .channel('articles')
+      .on('postgres_changes', 
+        { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'articles' 
+        },
+        (payload) => {
+          if (mounted) {
+            setNews(current => {
+              const exists = current.some(article => 
+                article.url === payload.new.url
+              );
+              if (exists) return current;
+              return [payload.new, ...current];
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    timeoutId = window.setInterval(() => {
+      fetchNews(true);
+    }, refreshInterval);
 
     return () => {
       mounted = false;
-      window.clearTimeout(timeoutId);
+      window.clearInterval(timeoutId);
+      subscription.unsubscribe();
     };
   }, [refreshInterval]);
 

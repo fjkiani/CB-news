@@ -47,9 +47,19 @@ export const NewsCard: React.FC<NewsCardProps> = ({ article }) => {
       <h3 className="text-lg font-semibold mb-2">{article.raw.title}</h3>
       
       <div className="flex items-center gap-4 text-sm text-gray-600 mb-3">
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2 text-gray-500 text-sm">
           <Clock className="w-4 h-4" />
-          <span>{new Date(article.raw.publishedAt).toLocaleDateString()}</span>
+          <span>
+            {new Date(article.raw.publishedAt).toLocaleString('en-US', {
+              timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              year: 'numeric',
+              month: 'numeric',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: 'numeric',
+              hour12: true
+            })}
+          </span>
         </div>
         <div className="flex items-center gap-1">
           {getSentimentIcon()}
@@ -60,19 +70,27 @@ export const NewsCard: React.FC<NewsCardProps> = ({ article }) => {
         </div>
       </div>
 
-      {/* Diffbot AI Summary */}
-      {article.raw.summary && (
+      {/* AI Summary if available */}
+      {article.raw.naturalLanguage?.summary ? (
         <div className="bg-gray-50 rounded-md p-4 mb-4">
           <div className="flex items-center gap-2 text-gray-700 mb-2">
             <BookOpen className="w-4 h-4" />
             <span className="font-medium">AI Summary</span>
           </div>
-          <p className="text-gray-600 text-sm">{article.raw.summary}</p>
+          <p className="text-gray-600 text-sm">{article.raw.naturalLanguage.summary}</p>
         </div>
-      )}
+      ) : null}
 
-      {/* Original summary */}
-      <p className="text-gray-700 mb-4">{article.summary}</p>
+      {/* Full article content */}
+      <div className="bg-gray-50 rounded-md p-4 mb-4">
+        <div className="flex items-center gap-2 text-gray-700 mb-2">
+          <BookOpen className="w-4 h-4" />
+          <span className="font-medium">Full Article</span>
+        </div>
+        <p className="text-gray-600 text-sm whitespace-pre-line">
+          {article.raw.content.replace(/\d+\s+(?:minutes?|hours?|days?)\s+ago/i, '').trim()}
+        </p>
+      </div>
 
       {/* Diffbot Tags */}
       {article.raw.tags && article.raw.tags.length > 0 && (
@@ -83,8 +101,12 @@ export const NewsCard: React.FC<NewsCardProps> = ({ article }) => {
           </div>
           <div className="flex flex-wrap gap-2">
             {article.raw.tags.map((tag, i) => (
-              <span key={i} className="px-2 py-1 bg-purple-100 text-purple-800 text-xs rounded-full">
-                {tag}
+              <span 
+                key={i} 
+                className="px-2 py-1 bg-purple-100 text-purple-800 text-xs rounded-full"
+                title={`Score: ${tag.score}`}
+              >
+                {tag.label}
               </span>
             ))}
           </div>

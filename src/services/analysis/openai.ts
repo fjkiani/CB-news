@@ -1,3 +1,7 @@
+import { RedisCacheManager } from '../cache/redisCacheManager';
+
+const cache = new RedisCacheManager('openai-analysis');
+
 const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
 
 interface AnalysisResult {
@@ -18,6 +22,14 @@ export const analyzeNewsArticle = async (
   article: string,
   marketContext: string
 ): Promise<AnalysisResult> => {
+  const cacheKey = JSON.stringify({ article, marketContext });
+  
+  // Try cache first
+  const cached = await cache.get<AnalysisResult>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -55,5 +67,10 @@ export const analyzeNewsArticle = async (
   }
 
   const data = await response.json();
-  return JSON.parse(data.choices[0].message.content);
+  const result = JSON.parse(data.choices[0].message.content);
+  
+  // Cache the result
+  await cache.set(cacheKey, result);
+  
+  return result;
 };

@@ -18,7 +18,21 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+
+    /* Path aliases */
+    "baseUrl": ".",
+    "paths": {
+      "@src/*": ["src/*"],
+      "@services/*": ["src/services/*"],
+      "@tests/*": ["src/tests/*"],
+      "@backend/*": ["backend/src/*"]
+    }
   },
-  "include": ["src"]
+  "include": [
+    "src",
+    "backend/src/tests/integration/supabase.test.ts",
+    "src/tests/**/*.ts",
+    "src/services/**/*.ts"
+, "supabase/functions/check-trading-economics/index.ts"  ]
 }

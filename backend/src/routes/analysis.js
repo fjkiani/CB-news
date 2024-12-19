@@ -1,26 +1,56 @@
-const express = require('express');
+import express from 'express';
+import { HfInference } from '@huggingface/inference';
+import logger from '../logger.js';
+import marketIndicators from '../config/marketIndicators.js';
+import Redis from 'ioredis';
+
 const router = express.Router();
-const { HfInference } = require('@huggingface/inference');
-const logger = require('../logger');
-const marketIndicators = require('../config/marketIndicators');
 
-// In-memory cache for analysis results
-const analysisCache = new Map();
-const CACHE_DURATION = 1000 * 60 * 60; // 1 hour
+// Initialize Redis client
+const redis = new Redis({
+  host: 'localhost',
+  port: 6379,
+});
 
-function getCacheKey(content) {
-  // Use first 100 chars as key since similar articles will have same beginning
-  return content.slice(0, 100);
+const CACHE_DURATION = 3600; // 1 hour in seconds
+
+// Helper function to create consistent cache keys
+function createCacheKey(content) {
+  // Create a more reliable cache key using content hash or first N chars
+  return `analysis:${Buffer.from(content.slice(0, 100)).toString('base64')}`;
+}
+
+// Wrapper for Redis get with error handling
+async function getCachedAnalysis(key) {
+  try {
+    const cached = await redis.get(key);
+    if (cached) {
+      logger.info('Analysis cache HIT', { key });
+      return JSON.parse(cached);
+    }
+  } catch (error) {
+    logger.error('Redis get error:', error);
+  }
+  return null;
+}
+
+// Wrapper for Redis set with error handling
+async function setCachedAnalysis(key, value) {
+  try {
+    await redis.set(key, JSON.stringify(value), 'EX', CACHE_DURATION);
+    logger.info('Analysis cached', { key });
+  } catch (error) {
+    logger.error('Redis set error:', error);
+  }
 }
 
 async function getAnalysis(content) {
-  const cacheKey = getCacheKey(content);
+  const cacheKey = createCacheKey(content);
   
-  // Check cache
-  const cached = analysisCache.get(cacheKey);
-  if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
-    logger.info('Analysis cache HIT');
-    return cached.result;
+  // Try to get from cache first
+  const cached = await getCachedAnalysis(cacheKey);
+  if (cached) {
+    return cached;
   }
 
   logger.info('Analysis cache MISS - performing new analysis');
@@ -29,10 +59,7 @@ async function getAnalysis(content) {
   const result = analyzeContent(content, marketIndicators);
   
   // Cache the result
-  analysisCache.set(cacheKey, {
-    timestamp: Date.now(),
-    result
-  });
+  await setCachedAnalysis(cacheKey, result);
 
   return result;
 }
@@ -103,8 +130,7 @@ router.post('/market-impact', async (req, res) => {
       });
     }
 
-    // Use configurable analysis
-    const result = analyzeContent(content, marketIndicators);
+    const result = await getAnalysis(content);
     res.json(result);
 
   } catch (error) {
@@ -116,7 +142,7 @@ router.post('/market-impact', async (req, res) => {
   }
 });
 
-// Batch analysis endpoint
+// Update batch analysis to use the same caching mechanism
 router.post('/batch-market-impact', async (req, res) => {
   try {
     const { articles } = req.body;
@@ -143,4 +169,18 @@ router.post('/batch-market-impact', async (req, res) => {
   }
 });
 
-module.exports = router;
+// Add a cache clear endpoint for development/testing
+router.post('/clear-cache', async (req, res) => {
+  try {
+    const keys = await redis.keys('analysis:*');
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
+    res.json({ message: `Cleared ${keys.length} cached analyses` });
+  } catch (error) {
+    logger.error('Cache clear error:', error);
+    res.status(500).json({ error: 'Failed to clear cache' });
+  }
+});
+
+export default router;

@@ -1,0 +1,21 @@
+# docker-compose.yml
+version: '3.8'
+services:
+  dgraph:
+    image: dgraph/dgraph:latest
+    ports:
+      - "8080:8080"  # HTTP API
+      - "9080:9080"  # gRPC API
+    volumes:
+      - dgraph_data:/dgraph
+    command: dgraph alpha --security whitelist=0.0.0.0/0
+
+  ratel:
+    image: dgraph/ratel:latest
+    ports:
+      - "8000:8000"
+    depends_on:
+      - dgraph
+
+volumes:
+  dgraph_data:

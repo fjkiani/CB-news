@@ -1,3 +1,5 @@
+import { RedisCacheManager } from '../../cache/redisCacheManager';
+
 interface MarketRelationship {
   source: string;
   target: string;
@@ -6,10 +8,24 @@ interface MarketRelationship {
   description: string;
 }
 
+const cache = new RedisCacheManager('relationship-extractor');
+
 export async function extractRelationships(
   articles: string[],
   timeframe: string
 ): Promise<MarketRelationship[]> {
+  // Create a cache key from articles and timeframe
+  const cacheKey = JSON.stringify({
+    articles: articles.sort(), // Sort to ensure same articles in different order get same cache key
+    timeframe
+  });
+  
+  // Try cache first
+  const cached = await cache.get<MarketRelationship[]>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -47,5 +63,10 @@ export async function extractRelationships(
   }
 
   const data = await response.json();
-  return JSON.parse(data.choices[0].message.content);
+  const result = JSON.parse(data.choices[0].message.content);
+  
+  // Cache the result
+  await cache.set(cacheKey, result);
+  
+  return result;
 }

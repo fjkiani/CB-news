@@ -41,4 +41,4 @@ const marketIndicators = {
   }
 };
 
-module.exports = marketIndicators; 
+export default marketIndicators; 

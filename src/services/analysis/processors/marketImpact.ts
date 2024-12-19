@@ -11,10 +11,22 @@ interface MarketImpact {
   };
 }
 
+import { RedisCacheManager } from '../../cache/redisCacheManager';
+
+const cache = new RedisCacheManager('market-impact');
+
 export async function analyzeMarketImpact(
   article: string,
   marketContext: string
 ): Promise<MarketImpact> {
+  const cacheKey = JSON.stringify({ article, marketContext });
+  
+  // Try cache first
+  const cached = await cache.get<MarketImpact>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -53,5 +65,10 @@ export async function analyzeMarketImpact(
   }
 
   const data = await response.json();
-  return JSON.parse(data.choices[0].message.content);
+  const result = JSON.parse(data.choices[0].message.content);
+  
+  // Cache the result
+  await cache.set(cacheKey, result);
+  
+  return result;
 }

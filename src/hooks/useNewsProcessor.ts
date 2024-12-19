@@ -6,6 +6,23 @@ export function useNewsProcessor(articles: RawNewsArticle[]) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
+  const formatDate = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleString('en-US', {
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, // Uses your system timezone
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: 'numeric',
+        hour12: true
+      });
+    } catch {
+      return new Date().toLocaleString();
+    }
+  };
+
   useEffect(() => {
     const processArticles = async () => {
       try {
@@ -13,17 +30,24 @@ export function useNewsProcessor(articles: RawNewsArticle[]) {
         console.log('Processing articles:', articles);
 
         const processed = articles.map((article) => {
+          console.log('Processing article:', article);
+          
           const sentiment = {
-            score: article.sentiment.score,
-            label: article.sentiment.label,
-            confidence: article.sentiment.confidence
+            score: article.sentiment?.score ?? 0,
+            label: article.sentiment?.label ?? 'neutral',
+            confidence: article.sentiment?.confidence ?? 0
           };
 
           return {
             id: `${article.source}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            raw: article,
-            summary: article.content.slice(0, 200) + '...',
-            keyPoints: [article.content.slice(0, 100)],
+            raw: {
+              ...article,
+              publishedAt: article.raw_data?.date || article.created_at || new Date().toISOString(),
+            },
+            published_at: article.created_at || new Date().toISOString(),
+            display_date: formatDate(article.created_at || new Date().toISOString()),
+            summary: article.content?.slice(0, 200) + '...' ?? 'No content available',
+            keyPoints: [article.content?.slice(0, 100) ?? 'No content available'],
             entities: {
               companies: [],
               sectors: [],
