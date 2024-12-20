@@ -20,7 +20,6 @@
     "@supabase/supabase-js": "^2.47.10",
     "axios": "^1.7.9",
     "chart.js": "^4.4.1",
-    "get-port": "^7.1.0",
     "ioredis": "^5.4.1",
     "jsdom": "^24.0.0",
     "lucide-react": "^0.294.0",

@@ -7,7 +7,6 @@ import analysisRoutes from './routes/analysis.js';
 import newsRoutes from './routes/news.js';
 import axios from 'axios';
 import { SupabaseStorage } from './services/storage/supabase/supabaseStorage.js';
-import getPort from 'get-port';
 import { getRedisClient } from './services/redis/redisClient.js';
 
 const app = express();
@@ -23,22 +22,30 @@ app.use(cors({
 // Add body parser for JSON
 app.use(express.json());
 
-// Health check endpoint
-app.get('/health', async (req, res) => {
-  try {
-    const redis = getRedisClient();
-    await redis.ping();
-    res.json({ 
-      status: 'ok',
-      redis: 'connected'
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      status: 'error',
-      redis: 'disconnected',
-      error: error.message
-    });
-  }
+// Redirect root to health check
+app.get('/', (req, res) => {
+  res.redirect('/api/health');
+});
+
+app.get('/api/health', (req, res) => {
+  const envCheck = {
+    supabase: {
+      hasUrl: !!process.env.VITE_SUPABASE_URL,
+      hasKey: !!process.env.VITE_SUPABASE_KEY
+    },
+    redis: {
+      hasUrl: !!process.env.REDIS_URL
+    },
+    diffbot: {
+      hasToken: !!process.env.VITE_DIFFBOT_TOKEN
+    }
+  };
+  
+  res.json({ 
+    status: 'ok',
+    environment: envCheck,
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Test cache endpoint
