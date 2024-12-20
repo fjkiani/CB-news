@@ -5,23 +5,35 @@ import path from 'path';
 import { config } from 'dotenv';
 import * as cheerio from 'cheerio';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-config({ path: path.resolve(__dirname, '../../.env') });
+// Load both .env files
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });  // For Redis
+dotenv.config({ path: path.resolve(__dirname, '../../../../../.env.local') });  // For Supabase
 
 let redisClient = null;
 
 function getRedisClient() {
   if (!redisClient) {
-    redisClient = new Redis({
-      host: 'localhost',
-      port: 6379
+    redisClient = new Redis(process.env.REDIS_URL || 'redis://shining-starfish-52184.upstash.io:52184', {
+      password: process.env.REDIS_PASSWORD,
+      tls: { rejectUnauthorized: false }
     });
   }
   return redisClient;
 }
+
+// Debug: Print environment variables (safely)
+console.log('Environment check:', {
+  hasRedisUrl: !!process.env.REDIS_URL,
+  hasRedisPassword: !!process.env.REDIS_PASSWORD,
+  hasSupabaseUrl: !!process.env.VITE_SUPABASE_URL,
+  hasSupabaseKey: !!process.env.VITE_SUPABASE_KEY,
+  keyType: process.env.VITE_SUPABASE_KEY?.includes('service_role') ? 'service_role' : 'anon'
+});
 
 export async function cleanup() {
   try {
@@ -41,16 +53,11 @@ const CACHE_DURATION = 3600; // 1 hour
 
 export async function scrapeNews(forceFresh = false) {
   try {
-    const redis = getRedisClient();
-    const cacheKey = 'diffbot:news';
-
-    if (forceFresh) {
-      await redis.del(cacheKey);
-    }
-
+    console.log('Starting scrape operation...');
+    
     const response = await axios.get('https://api.diffbot.com/v3/analyze', {
       params: {
-        token: process.env.VITE_DIFFBOT_TOKEN,
+        token: process.env.DIFFBOT_TOKEN,
         url: 'https://tradingeconomics.com/stream?c=united+states',
         naturalLanguage: true,
         format: 'json',
@@ -58,9 +65,22 @@ export async function scrapeNews(forceFresh = false) {
       }
     });
 
+    // Debug: Log API response
+    console.log('Diffbot API response status:', response.status);
+    console.log('Found objects:', response.data.objects?.length || 0);
+
     // Get all items from the response
     const newsItems = response.data.objects?.[0]?.items || [];
-    console.log('Found items:', newsItems.length);
+    console.log('Found news items:', newsItems.length);
+
+    // Debug: Log first item if exists
+    if (newsItems.length > 0) {
+      console.log('Sample news item:', {
+        title: newsItems[0].title,
+        date: newsItems[0].date,
+        link: newsItems[0].link
+      });
+    }
 
     const processedNews = newsItems.map((item, i) => {
       // Convert GMT to EST
@@ -96,25 +116,27 @@ export async function scrapeNews(forceFresh = false) {
       };
     });
 
-    const validNews = processedNews.filter(item => 
-      item.content && 
-      item.content.length > 10
-    );
-
-    console.log('Final valid news items:', validNews.length);
-
-    if (validNews.length > 0) {
-      await redis.set(cacheKey, JSON.stringify(validNews), 'EX', CACHE_DURATION);
+    // Debug: Log processed results
+    console.log('Processed articles:', processedNews.length);
+    if (processedNews.length > 0) {
+      console.log('Sample processed article:', {
+        id: processedNews[0].id,
+        title: processedNews[0].title,
+        publishedAt: processedNews[0].publishedAt
+      });
     }
 
-    return validNews;
+    return processedNews;
 
   } catch (error) {
-    logger.error('Scraping failed:', error);
+    console.error('Scraping failed:', {
+      message: error.message,
+      code: error.code,
+      response: error.response?.data
+    });
     throw error;
   }
 }
-
 function getSentimentLabel(score) {
   if (score >= 0.1) return 'positive';
   if (score <= -0.1) return 'negative';
@@ -122,3 +144,19 @@ function getSentimentLabel(score) {
 }
 
 export const forceRefresh = () => scrapeNews(true);
+// Add this debug code
+const cacheKey = 'diffbot:news';
+const articles = await scrapeNews(true);  // Force fresh scrape
+
+// Test caching explicitly
+try {
+  await redis.set(cacheKey, JSON.stringify(articles));
+  console.log('Cache set successfully');
+  
+  // Verify it was saved
+  const cached = await redis.get(cacheKey);
+  console.log('Cached data:', cached ? 'Found' : 'Not found');
+} catch (error) {
+  console.error('Redis operation failed:', error);
+}
+

@@ -8,6 +8,7 @@ import newsRoutes from './routes/news.js';
 import axios from 'axios';
 import { SupabaseStorage } from './services/storage/supabase/supabaseStorage.js';
 import getPort from 'get-port';
+import { getRedisClient } from './services/redis/redisClient.js';
 
 const app = express();
 const storage = new SupabaseStorage();
@@ -23,8 +24,21 @@ app.use(cors({
 app.use(express.json());
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
+app.get('/health', async (req, res) => {
+  try {
+    const redis = getRedisClient();
+    await redis.ping();
+    res.json({ 
+      status: 'ok',
+      redis: 'connected'
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'error',
+      redis: 'disconnected',
+      error: error.message
+    });
+  }
 });
 
 // Test cache endpoint

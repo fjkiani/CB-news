@@ -1,15 +1,24 @@
-# docker-compose.yml
 version: '3.8'
 services:
+  zero:
+    image: dgraph/dgraph:latest
+    ports:
+      - "5080:5080"
+      - "6080:6080"
+    volumes:
+      - dgraph_zero:/dgraph
+    command: dgraph zero --my=zero:5080
+
   dgraph:
     image: dgraph/dgraph:latest
     ports:
       - "8080:8080"  # HTTP API
       - "9080:9080"  # gRPC API
-      - "5080:5080"  # Internal communication
     volumes:
       - dgraph_data:/dgraph
-    command: dgraph alpha --security whitelist=0.0.0.0/0
+    command: dgraph alpha --my=dgraph:7080 --zero=zero:5080 --security whitelist=0.0.0.0/0
+    depends_on:
+      - zero
 
   ratel:
     image: dgraph/ratel:latest
@@ -27,5 +36,6 @@ services:
     restart: always
 
 volumes:
+  dgraph_zero:
   dgraph_data:
-  redis_data:
+  redis_data: 

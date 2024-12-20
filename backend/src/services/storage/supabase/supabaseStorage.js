@@ -68,18 +68,32 @@ class SupabaseStorage {
         insertion_source: source
       }));
 
+      console.log('Attempting Supabase upsert...');
+      
       const { data, error } = await this.supabase
         .from('articles')
         .upsert(articlesData, {
           onConflict: 'url',
-          ignoreDuplicates: true
+          ignoreDuplicates: false,
+          count: 'exact'
         })
-        .select();
+        .select('*');
 
-      if (error) throw error;
-      return data || [];
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
+
+      console.log('Supabase response:', {
+        success: !error,
+        inserted: data?.length || 0,
+        firstId: data?.[0]?.id,
+        firstTitle: data?.[0]?.title
+      });
+
+      return data;
     } catch (error) {
-      logger.error('Failed to store articles:', error);
+      console.error('Storage failed:', error);
       throw error;
     }
   }
@@ -189,5 +203,4 @@ class SupabaseStorage {
       throw error;
     }
   }
-}
-export { SupabaseStorage };
+}export { SupabaseStorage };
