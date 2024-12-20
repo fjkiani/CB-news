@@ -28,24 +28,29 @@ app.get('/', (req, res) => {
 });
 
 app.get('/api/health', (req, res) => {
-  const envCheck = {
-    supabase: {
-      hasUrl: !!process.env.VITE_SUPABASE_URL,
-      hasKey: !!process.env.VITE_SUPABASE_KEY
-    },
-    redis: {
-      hasUrl: !!process.env.REDIS_URL
-    },
-    diffbot: {
-      hasToken: !!process.env.VITE_DIFFBOT_TOKEN
-    }
-  };
-  
-  res.json({ 
-    status: 'ok',
-    environment: envCheck,
-    timestamp: new Date().toISOString()
-  });
+  try {
+    // Log environment variables (safely)
+    console.log('Environment check:', {
+      hasSupabaseUrl: !!process.env.VITE_SUPABASE_URL,
+      hasSupabaseKey: !!process.env.VITE_SUPABASE_KEY,
+      hasDiffbotToken: !!process.env.VITE_DIFFBOT_TOKEN,
+      hasRedisUrl: !!process.env.REDIS_URL
+    });
+
+    res.json({ 
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      env: {
+        hasSupabaseUrl: !!process.env.VITE_SUPABASE_URL,
+        hasSupabaseKey: !!process.env.VITE_SUPABASE_KEY,
+        hasDiffbotToken: !!process.env.VITE_DIFFBOT_TOKEN,
+        hasRedisUrl: !!process.env.REDIS_URL
+      }
+    });
+  } catch (error) {
+    console.error('Health check error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Test cache endpoint
