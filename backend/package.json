@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node backend/src/server.js",
-    "dev": "nodemon backend/src/server.js",
+    "dev": "nodemon src/server.js",  
+    "start": "node src/server.js",   
     "postinstall": "npx puppeteer browsers install chrome",
     "test:webhook": "node tests/webhook-handler.js",
     "test:simulate": "node tests/integration/webhook-simulator.js",

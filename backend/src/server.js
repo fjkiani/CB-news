@@ -145,10 +145,8 @@ app.get('/test/diffbot-direct', async (req, res) => {
 // Add the new news routes
 app.use('/api/news', newsRoutes);
 
-(async () => {
-  const PORT = await getPort({ port: [3000, 3001, 3002, 3003, 3004, 3005] });
+const PORT = 3001;  // Match the frontend's default port
 
-  app.listen(PORT, () => {
-    logger.info(`Server running on port ${PORT}`);
-  });
-})();
+app.listen(PORT, () => {
+  logger.info(`Server running on port ${PORT}`);
+});
