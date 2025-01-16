@@ -175,32 +175,32 @@ export async function scrapeNews(forceFresh = false) {
     const articles = [];
     const seenUrls = new Set();
     const newUrls = new Set();
-    let mostRecentValidDate = null;
 
     // Process each article from the analyzed data
     const items = analyzed.objects[0].items;
 
     // Log all dates first to understand the formats
-    logger.info('All article dates from Diffbot:', items.map(item => ({
-      title: item.title,
-      date: item.date,
-      timestamp: item.timestamp,
-      estimatedDate: item.estimatedDate
-    })));
+    logger.info('All article dates from Diffbot:', 
+      Object.fromEntries(items.map((item, index) => [
+        index, 
+        {
+          title: item.title,
+          date: item.date || null,
+          link: item.link || null
+        }
+      ]))
+    );
 
     // First pass: find the most recent valid date
+    let mostRecentValidDate = new Date(); // Default to current time
     for (const item of items) {
       const dateStr = item.date || item.timestamp || item.estimatedDate;
       if (dateStr) {
         try {
           const date = new Date(dateStr);
           if (!isNaN(date.getTime())) {
-            const now = new Date();
-            // Only consider dates within the last MAX_AGE_DAYS
-            if (date <= now && date >= new Date(now.getTime() - (MAX_AGE_DAYS * 24 * 60 * 60 * 1000))) {
-              if (!mostRecentValidDate || date > mostRecentValidDate) {
-                mostRecentValidDate = date;
-              }
+            if (!mostRecentValidDate || date > mostRecentValidDate) {
+              mostRecentValidDate = date;
             }
           }
         } catch (error) {
@@ -210,114 +210,63 @@ export async function scrapeNews(forceFresh = false) {
     }
 
     logger.info('Most recent valid date found:', {
-      date: mostRecentValidDate?.toISOString(),
-      humanReadable: mostRecentValidDate?.toString()
+      date: mostRecentValidDate.toISOString(),
+      humanReadable: mostRecentValidDate.toString()
     });
 
+    // Reset processed URLs if forcing fresh data
+    if (forceFresh) {
+      processedUrls.clear();
+      logger.info('Cleared processed URLs due to force fresh');
+    }
+
     for (const item of items) {
-      const url = item.link;
+      // Get URL from either link or te-stream-category
+      const url = item.link || item['te-stream-category'] || `https://tradingeconomics.com/united-states/news#${item.title}`;
+      
       if (!url) {
-        logger.debug('Skipping article: No URL found', { title: item.title });
-        continue;
+        logger.debug('Generated fallback URL for article', { 
+          title: item.title,
+          url: url
+        });
       }
       
+      // Only skip if we've seen this exact URL in this batch
       if (seenUrls.has(url)) {
-        logger.debug('Skipping article: Already seen in this batch', { url, title: item.title });
+        logger.debug('Skipping duplicate article in batch', { url, title: item.title });
         continue;
       }
+
+      // For articles without any date, use the most recent valid date
+      let publishedAt = mostRecentValidDate; // Default to most recent valid date
+      const dateStr = item.date || item.timestamp || item.estimatedDate;
       
-      // Skip if we've processed this URL recently
-      if (processedUrls.has(url)) {
-        logger.debug('Skipping article: Previously processed', { 
-          url,
-          title: item.title,
-          date: item.date,
-          estimatedDate: item.estimatedDate,
-          timestamp: item.timestamp
-        });
-        continue;
-      }
-      
-      // Log raw date information
-      logger.info('Processing article date:', {
-        title: item.title,
-        rawDate: item.date,
-        estimatedDate: item.estimatedDate,
-        timestamp: item.timestamp,
-        dateFields: Object.keys(item).filter(key => key.toLowerCase().includes('date')),
-        allDateFields: Object.entries(item)
-          .filter(([key]) => key.toLowerCase().includes('date'))
-          .reduce((acc, [key, value]) => ({ ...acc, [key]: value }), {})
-      });
-      
-      // Parse and validate the date
-      let publishedAt;
-      try {
-        // Try different date fields in order of preference
-        const dateStr = item.date || item.timestamp || item.estimatedDate;
-        if (!dateStr) {
-          logger.warn('No date found for article, using most recent valid date:', { 
-            title: item.title,
-            fallbackDate: mostRecentValidDate?.toISOString() || new Date().toISOString()
-          });
-          publishedAt = mostRecentValidDate || new Date();
-        } else {
-          // Parse the date string, assuming it's in UTC
-          publishedAt = new Date(dateStr);
-          
-          // Log the parsed date details
-          logger.info('Date parsing details:', {
-            title: item.title,
-            originalDate: dateStr,
-            parsedDate: publishedAt.toISOString(),
-            utcString: publishedAt.toUTCString(),
-            timestamp: publishedAt.getTime(),
-            now: new Date().toISOString(),
-            dateComponents: {
-              year: publishedAt.getUTCFullYear(),
-              month: publishedAt.getUTCMonth() + 1,
-              day: publishedAt.getUTCDate(),
-              hours: publishedAt.getUTCHours(),
-              minutes: publishedAt.getUTCMinutes()
-            }
-          });
-          
-          // If date is invalid or in the future, use most recent valid date
-          const now = new Date();
-          if (isNaN(publishedAt.getTime()) || publishedAt > now) {
-            logger.warn('Invalid or future date detected, using most recent valid date:', {
-              originalDate: dateStr,
-              parsedDate: publishedAt.toISOString(),
+      if (dateStr) {
+        try {
+          const parsedDate = new Date(dateStr);
+          if (!isNaN(parsedDate.getTime())) {
+            publishedAt = parsedDate;
+          } else {
+            logger.warn('Invalid date format, using most recent valid date:', {
               title: item.title,
-              now: now.toISOString(),
-              fallbackDate: mostRecentValidDate?.toISOString() || now.toISOString()
+              dateStr,
+              fallbackDate: mostRecentValidDate.toISOString()
             });
-            publishedAt = mostRecentValidDate || now;
           }
-          
-          // Skip articles older than MAX_AGE_DAYS
-          const age = now.getTime() - publishedAt.getTime();
-          if (age > MAX_AGE_DAYS * 24 * 60 * 60 * 1000) {
-            logger.debug('Skipping article: Too old', {
-              title: item.title,
-              date: publishedAt.toISOString(),
-              age: Math.round(age / (24 * 60 * 60 * 1000)) + ' days'
-            });
-            continue;
-          }
+        } catch (error) {
+          logger.warn('Failed to parse date, using most recent valid date:', {
+            title: item.title,
+            dateStr,
+            fallbackDate: mostRecentValidDate.toISOString()
+          });
         }
-      } catch (error) {
-        logger.warn('Date parsing error, using most recent valid date:', {
-          error: error.message,
-          originalDate: item.date,
-          estimatedDate: item.estimatedDate,
-          timestamp: item.timestamp,
+      } else {
+        logger.info('No date found for article, using most recent valid date:', {
           title: item.title,
-          fallbackDate: mostRecentValidDate?.toISOString() || new Date().toISOString()
+          fallbackDate: mostRecentValidDate.toISOString()
         });
-        publishedAt = mostRecentValidDate || new Date();
       }
-      
+
       seenUrls.add(url);
       newUrls.add(url);
       
@@ -330,16 +279,12 @@ export async function scrapeNews(forceFresh = false) {
         // Get category from the stream data
         const category = item['te-stream-category']?.split('?i=')?.[1]?.replace(/\+/g, ' ') || 'Market News';
         
-        // Store the original date string for reference
-        const originalDate = item.date || item.timestamp || item.estimatedDate;
-        
         articles.push({
           id: `te-${Date.now()}-${articles.length}`,
           title: item.title,
-          content: item.summary,
+          content: item.summary || 'No content available',
           url: url,
-          publishedAt: publishedAt.toISOString(), // Store as ISO string
-          originalDate: originalDate, // Store original date string
+          publishedAt: publishedAt.toISOString(),
           source: 'Trading Economics',
           category: category,
           sentiment: {
@@ -347,7 +292,7 @@ export async function scrapeNews(forceFresh = false) {
             label: 'neutral',
             confidence: 0
           },
-          summary: item.summary,
+          summary: item.summary || item.content || 'No summary available',
           author: 'Trading Economics',
           tags: [category]
         });
@@ -355,8 +300,7 @@ export async function scrapeNews(forceFresh = false) {
         logger.info('Processed new article:', { 
           title: item.title,
           url: url,
-          originalDate: originalDate,
-          processedDate: publishedAt.toISOString(),
+          publishedAt: publishedAt.toISOString(),
           category: category
         });
 

@@ -71,20 +71,29 @@ class SupabaseStorage {
         raw_data: article
       };
 
-      logger.info('Storing article:', {
+      logger.info('Attempting to store article:', {
         title: articleData.title,
         url: articleData.url,
-        date: articleDate
+        date: articleDate,
+        published_at: articleData.published_at,
+        content_length: articleData.content?.length || 0
       });
 
       // First check if article exists
       const { data: existing } = await this.supabase
         .from('articles')
-        .select('id')
+        .select('id, title, published_at')
         .eq('url', articleData.url)
         .single();
 
       if (existing) {
+        logger.info('Found existing article:', {
+          id: existing.id,
+          title: existing.title,
+          existing_date: existing.published_at,
+          new_date: articleData.published_at
+        });
+        
         // Update existing article
         const { data, error } = await this.supabase
           .from('articles')
@@ -93,7 +102,22 @@ class SupabaseStorage {
           .select()
           .single();
 
-        if (error) throw error;
+        if (error) {
+          logger.error('Failed to update article:', {
+            error,
+            article: {
+              title: articleData.title,
+              url: articleData.url
+            }
+          });
+          throw error;
+        }
+        
+        logger.info('Successfully updated article:', {
+          id: data.id,
+          title: data.title,
+          published_at: data.published_at
+        });
         return data;
       } else {
         // Insert new article
@@ -103,11 +127,32 @@ class SupabaseStorage {
           .select()
           .single();
 
-        if (error) throw error;
+        if (error) {
+          logger.error('Failed to insert article:', {
+            error,
+            article: {
+              title: articleData.title,
+              url: articleData.url
+            }
+          });
+          throw error;
+        }
+        
+        logger.info('Successfully inserted new article:', {
+          id: data.id,
+          title: data.title,
+          published_at: data.published_at
+        });
         return data;
       }
     } catch (error) {
-      logger.error('Failed to store article:', error);
+      logger.error('Failed to store article:', {
+        error,
+        article: {
+          title: article.title,
+          url: article.url
+        }
+      });
       throw error;
     }
   }
@@ -168,6 +213,16 @@ class SupabaseStorage {
 
   async getRecentArticles(limit = 100) {
     try {
+      // First get total count
+      const { count, error: countError } = await this.supabase
+        .from('articles')
+        .select('*', { count: 'exact', head: true });
+
+      if (countError) throw countError;
+
+      logger.info('Found total articles in Supabase:', { count });
+
+      // Then get articles
       const { data, error } = await this.supabase
         .from('articles')
         .select('*')
@@ -176,6 +231,15 @@ class SupabaseStorage {
 
       if (error) throw error;
       
+      // Log raw data from Supabase
+      logger.info('Raw Supabase response:', {
+        allUrls: data?.map(a => a.url),
+        first: data?.[0]?.title,
+        last: data?.[data.length - 1]?.title,
+        returnedCount: data?.length,
+        totalCount: count
+      });
+      
       // Transform data for frontend
       const transformedData = data?.map(article => ({
         ...article,
@@ -183,8 +247,17 @@ class SupabaseStorage {
         created_at: article.created_at || article.published_at // Fallback to published_at if created_at is null
       })) || [];
       
-      logger.info(`Retrieved ${transformedData.length} recent articles`);
-      return transformedData;
+      // Log transformed data
+      logger.info('Transformed articles:', {
+        count: transformedData.length,
+        first: transformedData[0]?.title,
+        last: transformedData[transformedData.length - 1]?.title
+      });
+      
+      return {
+        articles: transformedData,
+        totalCount: count
+      };
     } catch (error) {
       logger.error('Failed to get recent articles:', error);
       throw error;
