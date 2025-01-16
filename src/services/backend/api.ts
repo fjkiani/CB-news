@@ -1,85 +1,59 @@
 import { BACKEND_CONFIG } from './config';
-import { ServiceStatus, ScraperError } from './types';
 import { retry } from '../../utils/retry';
+import type { ScraperError } from './types';
 
 class BackendAPI {
-  private static instance: BackendAPI;
   private baseUrl: string;
+  private static instance: BackendAPI;
 
   private constructor() {
-    this.baseUrl = BACKEND_CONFIG.BASE_URL;
-    console.log('Backend API initialized with URL:', this.baseUrl);
+    // Force production URL for now to debug
+    this.baseUrl = 'https://backend-khaki-omega.vercel.app';
+    console.log('BackendAPI initialized with URL:', this.baseUrl);
   }
 
-  static getInstance(): BackendAPI {
+  static getInstance() {
     if (!BackendAPI.instance) {
       BackendAPI.instance = new BackendAPI();
     }
     return BackendAPI.instance;
   }
 
-  async checkHealth(): Promise<ServiceStatus> {
-    console.log('Checking backend health...');
-    const response = await fetch(`${this.baseUrl}/health`);
-    if (!response.ok) throw new Error('Health check failed');
-    return response.json();
-  }
-
   async getRecentArticles() {
+    const url = `${this.baseUrl}/api/news`;
+    console.log('Fetching news from:', url);
+
     try {
-      console.log('Fetching recent articles...');
       const response = await retry(
-        () => fetch(`${this.baseUrl}/api/news`),
+        async () => {
+          const res = await fetch(url, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+          
+          // Check response before returning
+          if (!res.ok) {
+            throw new Error(`HTTP error! status: ${res.status}`);
+          }
+          return res;
+        },
         {
-          attempts: BACKEND_CONFIG.RETRY_ATTEMPTS,
-          delay: BACKEND_CONFIG.RETRY_DELAY,
+          attempts: 3,
+          delay: 1000,
           onError: (error, attempt) => {
-            console.warn(`Recent articles fetch attempt ${attempt} failed:`, error);
+            console.warn(`Attempt ${attempt} failed:`, error.message);
           }
         }
       );
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch recent articles');
-      }
-
       const data = await response.json();
-      console.log(`Successfully fetched ${data.length} articles from database`);
+      console.log('Successfully fetched articles:', data.length);
       return data;
     } catch (error) {
-      console.error('Recent articles fetch failed:', error);
-      throw error;
-    }
-  }
-
-  async scrapeNews(forceFresh = false) {
-    try {
-      console.log('Initiating news scraping...');
-      const url = new URL(`${this.baseUrl}/api/scrape/trading-economics`);
-      if (forceFresh) url.searchParams.set('fresh', 'true');
-
-      const response = await retry(
-        () => fetch(url.toString()),
-        {
-          attempts: BACKEND_CONFIG.RETRY_ATTEMPTS,
-          delay: BACKEND_CONFIG.RETRY_DELAY,
-          onError: (error, attempt) => {
-            console.warn(`News scraping attempt ${attempt} failed:`, error);
-          }
-        }
-      );
-
-      if (!response.ok) {
-        const error: ScraperError = await response.json();
-        throw new Error(error.message || 'Failed to scrape news');
-      }
-
-      const data = await response.json();
-      console.log(`Successfully fetched ${data.length} articles`);
-      return data;
-    } catch (error) {
-      console.error('News scraping failed:', error);
-      throw error;
+      console.error('Failed to fetch news:', error);
+      throw new Error(`Failed to fetch news: ${error.message}`);
     }
   }
 }

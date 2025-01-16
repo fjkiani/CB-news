@@ -27,22 +27,68 @@ async function testStorage() {
     console.log('Creating Supabase storage...');
     const storage = new SupabaseStorage();
     
-    console.log('Querying recent articles...');
+    // Create a test article with today's date
+    const testArticle = {
+      title: `Test Article ${new Date().toISOString()}`,
+      content: 'This is a test article content',
+      url: `https://test.com/article/${Date.now()}`,
+      date: new Date().toUTCString(),
+      publishedAt: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+      source: 'Test Source',
+      category: 'Test Category'
+    };
+
+    console.log('\nAttempting to store test article:', {
+      title: testArticle.title,
+      date: testArticle.date,
+      publishedAt: testArticle.publishedAt
+    });
+
+    // Try storing the article
+    const storedArticle = await storage.storeArticle(testArticle);
+    console.log('\nArticle stored successfully:', {
+      id: storedArticle.id,
+      title: storedArticle.title,
+      created_at: storedArticle.created_at,
+      published_at: storedArticle.published_at,
+      raw_data: storedArticle.raw_data
+    });
+
+    // Query to verify the article was stored
+    console.log('\nQuerying for recently stored article...');
     const { data, error } = await storage.supabase
+      .from('articles')
+      .select('*')
+      .eq('url', testArticle.url)
+      .single();
+
+    if (error) throw error;
+
+    console.log('Retrieved article:', {
+      id: data.id,
+      title: data.title,
+      created_at: data.created_at,
+      published_at: data.published_at,
+      raw_data_date: data.raw_data?.date
+    });
+
+    // Query recent articles to verify ordering
+    console.log('\nChecking most recent articles...');
+    const { data: recentArticles, error: recentError } = await storage.supabase
       .from('articles')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(5);
 
-    if (error) throw error;
+    if (recentError) throw recentError;
     
-    console.log('Recent articles:', {
-      count: data.length,
-      newest: data[0] ? {
-        title: data[0].title,
-        created_at: data[0].created_at
-      } : null
-    });
+    console.log('Recent articles:', recentArticles.map(article => ({
+      title: article.title,
+      created_at: article.created_at,
+      published_at: article.published_at,
+      raw_data_date: article.raw_data?.date
+    })));
 
   } catch (error) {
     console.error('Storage test failed:', error);
@@ -50,6 +96,7 @@ async function testStorage() {
       message: error.message,
       stack: error.stack
     });
+    process.exit(1);
   }
 }
 

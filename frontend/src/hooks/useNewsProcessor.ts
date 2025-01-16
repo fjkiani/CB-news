@@ -6,7 +6,7 @@ const CACHE_KEY = 'processed_news_cache';
 const CACHE_DURATION = 1000 * 60 * 15; // 15 minutes
 
 interface CacheEntry {
-  timestamp: number;
+  timestamp: number;  // This is for cache expiry only
   articles: Article[];
 }
 
@@ -36,9 +36,23 @@ export const useNewsProcessor = () => {
 
   const setCache = useCallback((articles: Article[]) => {
     try {
+      // Log articles before caching
+      console.debug('Caching articles with dates:', articles.map(article => ({
+        title: article.title,
+        publishedAt: article.publishedAt,
+        published_at: article.published_at,
+        created_at: article.created_at
+      })));
+
       const cacheData: CacheEntry = {
-        timestamp: Date.now(),
-        articles
+        timestamp: Date.now(),  // This is just for cache expiry
+        articles: articles.map(article => ({
+          ...article,
+          // Ensure we preserve the original dates
+          publishedAt: article.publishedAt,
+          published_at: article.published_at,
+          created_at: article.created_at
+        }))
       };
       localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
     } catch (error) {
@@ -57,9 +71,14 @@ export const useNewsProcessor = () => {
 
     setIsProcessing(true);
     try {
-      // If no cache, process articles
-      console.log(`Processing ${articles.length} articles`);
-      
+      // Log articles before processing
+      console.debug('Processing articles with dates:', articles.map(article => ({
+        title: article.title,
+        publishedAt: article.publishedAt,
+        published_at: article.published_at,
+        created_at: article.created_at
+      })));
+
       // Get analysis for all articles in one batch
       const analysisResults = await analyzeArticles(articles);
       
@@ -71,11 +90,24 @@ export const useNewsProcessor = () => {
         
         return {
           ...article,
+          // Ensure we preserve the original dates
+          publishedAt: article.publishedAt,
+          published_at: article.published_at,
+          created_at: article.created_at,
+          // Add analysis data
           analysis: analysis?.analysis || article.content,
           confidence: analysis?.confidence || article.sentiment?.score || 0,
           source: analysis?.source || 'diffbot'
         };
       });
+
+      // Log articles after processing
+      console.debug('Processed articles with dates:', processedArticles.map(article => ({
+        title: article.title,
+        publishedAt: article.publishedAt,
+        published_at: article.published_at,
+        created_at: article.created_at
+      })));
 
       // Cache the results
       setCache(processedArticles);

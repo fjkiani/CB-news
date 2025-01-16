@@ -20,17 +20,26 @@ export class ChangeDetectionService implements IChangeDetectionService {
       //   this.lastCheckedUrl = pythonResult.url;
       //   return {
       //     hasChanged: true,
-      //     currentUrl: pythonResult.url
+      //     currentUrl: pythonResult.url,
+      //     articles: [{
+      //       title: 'Example Article',
+      //       url: pythonResult.url,
+      //       publishedAt: new Date().toISOString()
+      //     }]
       //   };
       // }
 
       return {
         hasChanged: false,
-        currentUrl: this.lastCheckedUrl || undefined
+        currentUrl: this.lastCheckedUrl || undefined,
+        articles: []
       };
     } catch (error) {
       this.logger.error('Change detection failed:', error instanceof Error ? error.message : 'Unknown error');
-      return { hasChanged: false };
+      return { 
+        hasChanged: false,
+        articles: []
+      };
     }
   }
 

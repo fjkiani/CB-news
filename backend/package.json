@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "nodemon src/server.js",  
-    "start": "node src/server.js",   
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
     "postinstall": "npx puppeteer browsers install chrome",
     "test:webhook": "node tests/webhook-handler.js",
     "test:simulate": "node tests/integration/webhook-simulator.js",
@@ -23,12 +23,24 @@
     "winston": "^3.11.0"
   },
   "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@babel/plugin-transform-modules-commonjs": "^7.23.3",
+    "@babel/preset-env": "^7.24.0",
+    "@babel/preset-typescript": "^7.23.3",
+    "@jest/types": "^29.6.3",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.17.14",
+    "@types/python-shell": "^1.0.3",
     "axios": "^1.7.9",
+    "babel-jest": "^29.7.0",
     "body-parser": "^1.20.3",
     "express": "^4.21.2",
     "jest": "^29.7.0",
     "js-yaml": "^4.1.0",
+    "python-shell": "^5.0.0",
     "supertest": "^7.0.0",
-    "ts-node": "^10.9.2"
+    "ts-jest": "^29.1.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
   }
 }

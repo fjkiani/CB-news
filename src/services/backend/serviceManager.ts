@@ -23,17 +23,22 @@ class BackendServiceManager {
     if (!this.serviceUrl) return false;
 
     try {
-      const response = await fetch(`${this.serviceUrl}/health`, {
+      console.log('Checking service health at:', `${this.serviceUrl}/api/health`);
+      const response = await fetch(`${this.serviceUrl}/api/health`, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
         },
       });
       
-      if (!response.ok) throw new Error('Health check failed');
+      if (!response.ok) {
+        console.warn('Health check failed with status:', response.status);
+        throw new Error('Health check failed');
+      }
       
       const status: ServiceStatus = await response.json();
       this.isServiceRunning = status.status === 'ok';
+      console.log('Service health status:', this.isServiceRunning ? 'running' : 'down');
       return this.isServiceRunning;
     } catch (error) {
       console.warn('Backend service check failed:', error);

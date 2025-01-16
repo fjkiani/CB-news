@@ -1,45 +1,46 @@
 import Redis from 'ioredis';
 import logger from '../../logger.js';
 
+// Redis configuration
+const redisConfig = process.env.REDIS_URL ? {
+  url: process.env.REDIS_URL,
+  tls: { rejectUnauthorized: false },
+  maxRetriesPerRequest: 3,
+  retryStrategy(times) {
+    const delay = Math.min(times * 50, 2000);
+    return delay;
+  }
+} : {
+  host: 'localhost',
+  port: 6379,
+  maxRetriesPerRequest: 3,
+  retryStrategy(times) {
+    const delay = Math.min(times * 50, 2000);
+    return delay;
+  }
+};
+
 let redisClient = null;
 
 export function getRedisClient() {
   if (!redisClient) {
-    redisClient = new Redis(process.env.REDIS_URL, {
-      tls: {
-        rejectUnauthorized: false
-      },
-      retryStrategy(times) {
-        const delay = Math.min(times * 100, 3000);
-        return delay;
-      },
-      maxRetriesPerRequest: 3,
-      reconnectOnError(err) {
-        const targetError = 'READONLY';
-        if (err.message.includes(targetError)) {
-          return true;
-        }
-        return false;
-      },
-      connectTimeout: 10000,
-      keepAlive: 10000
+    logger.info('Initializing Redis client with config:', {
+      url: redisConfig.url || 'localhost:6379',
+      usingTLS: !!redisConfig.tls
     });
     
-    redisClient.on('error', (error) => {
-      logger.error('Redis Client Error:', error);
-      // Don't throw the error, just log it
+    redisClient = new Redis(redisConfig);
+
+    redisClient.on('error', (err) => {
+      logger.error('Redis error:', {
+        message: err.message,
+        code: err.code,
+        command: err.command
+      });
     });
 
     redisClient.on('connect', () => {
-      logger.info('Redis Client Connected');
-    });
-
-    redisClient.on('reconnecting', () => {
-      logger.info('Redis Client Reconnecting');
-    });
-
-    redisClient.on('ready', () => {
-      logger.info('Redis Client Ready');
+      logger.info('Redis connected successfully');
     });
   }
   return redisClient;
@@ -48,11 +49,13 @@ export function getRedisClient() {
 export async function cleanup() {
   try {
     if (redisClient) {
+      logger.info('Closing Redis connection...');
       await redisClient.quit();
       redisClient = null;
       logger.info('Redis connection closed successfully');
     }
   } catch (error) {
     logger.error('Error closing Redis connection:', error);
+    throw error;
   }
 }

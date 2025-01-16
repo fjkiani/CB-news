@@ -12,22 +12,30 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 import time
+import sys
 
 # Load environment variables
-load_dotenv()
+load_dotenv('/Users/fahadkiani/Desktop/development/backend/.env.local')
 
 # Constants
-NEWS_URL = "https://tradingeconomics.com/stream?c=united+states"  # Updated URL
+NEWS_URL = "https://tradingeconomics.com/stream?c=united+states"
 DATA_FILE = "last_news.json"
 DIFFBOT_TOKEN = os.getenv('DIFFBOT_TOKEN')
 DIFFBOT_URL = f"https://api.diffbot.com/v3/analyze?token={DIFFBOT_TOKEN}"
 
 # Add token check
 if not DIFFBOT_TOKEN:
-    print("Error: DIFFBOT_TOKEN not found in environment variables")
+    print(json.dumps({
+        'success': False,
+        'error': 'DIFFBOT_TOKEN not found in environment variables'
+    }))
     sys.exit(1)
 
-print(f"Loaded Diffbot token: {DIFFBOT_TOKEN[:10]}...")
+print(json.dumps({
+    'status': 'startup',
+    'diffbot_token_present': bool(DIFFBOT_TOKEN),
+    'token_prefix': DIFFBOT_TOKEN[:10] if DIFFBOT_TOKEN else None
+}))
 
 def get_top_news_item():
     """
@@ -35,7 +43,7 @@ def get_top_news_item():
     """
     driver = None
     try:
-        print("Setting up Chrome driver...")
+        print(json.dumps({'status': 'selenium_setup_start'}))
         chrome_options = Options()
         chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--no-sandbox")
@@ -43,18 +51,13 @@ def get_top_news_item():
         chrome_options.add_argument("--window-size=1920,1080")
         chrome_options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
-        # Use webdriver_manager to handle driver installation
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=chrome_options)
         
-        print("Fetching news page...")
+        print(json.dumps({'status': 'fetching_page', 'url': NEWS_URL}))
         driver.get(NEWS_URL)
         
-        # Wait for content to load
-        print("Waiting for content to load...")
         wait = WebDriverWait(driver, 20)
-        
-        # Try to find news items
         news_items = wait.until(
             EC.presence_of_all_elements_located((By.CSS_SELECTOR, ".te-stream-title"))
         )
@@ -64,15 +67,21 @@ def get_top_news_item():
             title = first_news.text.strip()
             url = first_news.get_attribute("href")
             
-            print(f"\nFound news item: '{title}'")
-            print(f"URL: {url}\n")
+            print(json.dumps({
+                'status': 'found_news',
+                'title': title,
+                'url': url
+            }))
             return title, url
                 
-        print("No news items found!")
+        print(json.dumps({'status': 'no_news_found'}))
         return None, None
         
     except Exception as e:
-        print(f"Error with Selenium: {e}")
+        print(json.dumps({
+            'status': 'selenium_error',
+            'error': str(e)
+        }))
         return None, None
         
     finally:
@@ -83,25 +92,33 @@ def load_last_news():
     """
     Loads the previously saved news item
     """
-    print("Loading last saved news...")
     if not os.path.exists(DATA_FILE):
-        print(f"No previous data file found ({DATA_FILE})")
+        print(json.dumps({
+            'status': 'no_previous_data',
+            'file': DATA_FILE
+        }))
         return None, None
         
     try:
         with open(DATA_FILE, 'r', encoding='utf-8') as f:
             data = json.load(f)
-            print(f"Last saved news: '{data.get('title')}'")
+            print(json.dumps({
+                'status': 'loaded_last_news',
+                'title': data.get('title'),
+                'timestamp': data.get('last_checked')
+            }))
             return data.get('title'), data.get('url')
     except Exception as e:
-        print(f"Error loading last news: {e}")
+        print(json.dumps({
+            'status': 'load_error',
+            'error': str(e)
+        }))
         return None, None
 
 def save_last_news(title, url):
     """
     Saves the current news item
     """
-    print("Saving current news...")
     try:
         with open(DATA_FILE, 'w', encoding='utf-8') as f:
             data = {
@@ -110,74 +127,137 @@ def save_last_news(title, url):
                 'last_checked': datetime.now().isoformat()
             }
             json.dump(data, f, indent=2)
-            print("News saved successfully")
+            print(json.dumps({
+                'status': 'saved_news',
+                'data': data
+            }))
     except Exception as e:
-        print(f"Error saving news: {e}")
+        print(json.dumps({
+            'status': 'save_error',
+            'error': str(e)
+        }))
 
-def process_with_diffbot(url):
-    print("\nProcessing with Diffbot...")
+def process_with_diffbot(url, title):
+    print(json.dumps({
+        'status': 'diffbot_start',
+        'url': url,
+        'title': title
+    }))
+    
     try:
-        # Construct the Diffbot URL with the correct mode
-        diffbot_url = f"{DIFFBOT_URL}&url={url}&mode=article"
-        print(f"Calling Diffbot API: {diffbot_url}")
+        # For index URLs, create an article from the title and market data
+        if 'indu:ind' in url or 'spx:ind' in url:
+            current_time = datetime.now()
+            # Ensure we don't use future dates
+            if current_time.year > 2024:
+                current_time = current_time.replace(year=2024)
+            processed_article = [{
+                'date': current_time.isoformat(),
+                'sentiment': 0,
+                'author': 'Trading Economics',
+                'text': f"Market Update: {title}. For detailed data, visit: {url}",
+                'title': title,
+                'url': url
+            }]
+            
+            print(json.dumps({
+                'status': 'processed_market_update',
+                'article': processed_article[0]
+            }))
+            return processed_article
+            
+        # For other URLs, process with Diffbot
+        diffbot_url = f"{DIFFBOT_URL}&url={url}"
+        print(json.dumps({
+            'status': 'calling_diffbot',
+            'api_url': diffbot_url
+        }))
         
         headers = {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
         }
         
-        diffbot_response = requests.get(diffbot_url, headers=headers)
+        diffbot_response = requests.get(diffbot_url, headers=headers, timeout=30)
         diffbot_response.raise_for_status()
         
         structured_data = diffbot_response.json()
-        print(f"Diffbot raw response: {json.dumps(structured_data, indent=2)}")
+        print(json.dumps({
+            'status': 'diffbot_response',
+            'has_objects': bool(structured_data.get('objects')),
+            'object_count': len(structured_data.get('objects', []))
+        }))
         
         if structured_data.get('objects'):
             article = structured_data['objects'][0]
             
-            # Extract the data we need
             processed_article = [{
-                'date': article.get('estimatedDate') or article.get('date'),
+                'date': article.get('estimatedDate') or article.get('date') or datetime.now().isoformat(),
                 'sentiment': article.get('sentiment', 0),
                 'author': article.get('author') or 'Trading Economics',
-                'text': article.get('text'),
-                'title': article.get('title'),
+                'text': article.get('text') or title,
+                'title': article.get('title') or title,
                 'url': url
             }]
             
-            print(f"Processed article: {json.dumps(processed_article, indent=2)}")
+            print(json.dumps({
+                'status': 'processed_article',
+                'article': processed_article[0]
+            }))
             return processed_article
             
-        print("No article data found in Diffbot response")
+        print(json.dumps({'status': 'no_article_data'}))
         return None
             
     except Exception as e:
-        print(f"Error processing with Diffbot: {e}")
-        if 'diffbot_response' in locals():
-            print(f"Response status: {diffbot_response.status_code}")
-            print(f"Response text: {diffbot_response.text}")
+        print(json.dumps({
+            'status': 'diffbot_error',
+            'error': str(e),
+            'response_status': getattr(diffbot_response, 'status_code', None) if 'diffbot_response' in locals() else None
+        }))
         return None
 
 def main():
     try:
-        print("Starting monitoring process...")
+        print(json.dumps({'status': 'process_start'}))
+        
+        # Load last processed news
+        last_title, last_url = load_last_news()
+        
+        # Get current news
         current_title, current_url = get_top_news_item()
         
         if not current_title or not current_url:
-            print("\n❌ Failed to fetch current news.")
-            print(json.dumps({'error': 'Failed to fetch news'}))
+            print(json.dumps({
+                'success': False,
+                'error': 'Failed to fetch current news'
+            }))
             return
 
-        # Process with Diffbot and return results
-        articles = process_with_diffbot(current_url)
+        # Compare with last processed
+        if last_title == current_title:
+            print(json.dumps({
+                'success': True,
+                'status': 'no_new_content',
+                'last_title': last_title,
+                'current_title': current_title
+            }))
+            return
+
+        # Process new content with Diffbot
+        articles = process_with_diffbot(current_url, current_title)
         if articles:
-            # Prepare data
+            # Save as last processed
+            save_last_news(current_title, current_url)
+            
             result = {
                 'success': True,
                 'articles': articles,
                 'metadata': {
                     'timestamp': datetime.now().isoformat(),
                     'source_url': current_url,
-                    'title': current_title
+                    'title': current_title,
+                    'previous_title': last_title
                 }
             }
             print(json.dumps(result))

@@ -9,16 +9,27 @@ export interface RawNewsArticle {
   title: string;
   content: string;
   url: string;
-  publishedAt: string;
+  publishedAt?: string;
+  created_at?: string;
+  date?: string;
   source: string;
   summary?: string;
-  tags?: string[];
+  sentiment?: {
+    score: number;
+    label: string;
+    confidence: number;
+  };
+  tags?: Array<{
+    label: string;
+    score: number;
+  }>;
   entities?: {
     name: string;
     type: string;
     confidence: number;
   }[];
-  nlp?: {
+  naturalLanguage?: {
+    summary?: string;
     topics?: string[];
     keywords?: string[];
     categories?: string[];

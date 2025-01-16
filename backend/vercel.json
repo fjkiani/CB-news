@@ -9,11 +9,17 @@
     "routes": [
       {
         "src": "/api/(.*)",
-        "dest": "src/server.js"
+        "dest": "src/server.js",
+        "headers": {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type"
+        }
       },
       {
         "src": "/(.*)",
         "dest": "src/server.js"
       }
-    ]
+    ],
+    "public": true
   }

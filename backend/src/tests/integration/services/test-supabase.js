@@ -1,46 +1,64 @@
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import logger from '../../../logger.js';
 
-// Load .env.local first (it has the service_role key)
-dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-async function testSupabase() {
+// Load environment variables from .env files
+dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../../.env.local') });
+
+async function main() {
   try {
-    console.log('Testing Supabase connection...');
-    
-    // Debug: Print environment variables (safely)
-    console.log('Environment check:', {
-      hasUrl: !!process.env.VITE_SUPABASE_URL,
-      hasKey: !!process.env.VITE_SUPABASE_KEY,
-      urlStart: process.env.VITE_SUPABASE_URL?.substring(0, 20),
-      keyType: process.env.VITE_SUPABASE_KEY?.includes('service_role') ? 'service_role' : 'anon'
-    });
+    // Check environment variables
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_KEY;
 
-    const supabase = createClient(
-      process.env.VITE_SUPABASE_URL,
-      process.env.VITE_SUPABASE_KEY
-    );
+    if (!supabaseUrl || !supabaseKey) {
+      logger.error('Missing Supabase credentials');
+      process.exit(1);
+    }
 
-    // Test a simple query
-    const { data, error } = await supabase
+    // Initialize Supabase client
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    logger.info('Supabase client initialized');
+
+    // Get total count of articles
+    const { count } = await supabase
       .from('articles')
-      .select('id, title')
-      .limit(1);
+      .select('*', { count: 'exact', head: true });
+
+    logger.info('Total articles in database:', { count });
+
+    // Get latest articles
+    const { data: articles, error } = await supabase
+      .from('articles')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(5);
 
     if (error) {
-      console.error('Query error:', error);
       throw error;
     }
 
-    console.log('Supabase connection successful!');
-    console.log('Sample data:', data);
+    // Log article details
+    articles.forEach((article, index) => {
+      logger.info(`Article ${index + 1}:`, {
+        title: article.title,
+        created_at: article.created_at,
+        published_at: article.published_at,
+        raw_data: article.raw_data
+      });
+    });
 
+    process.exit(0);
   } catch (error) {
-    console.error('Test failed:', error.message);
-    console.error('Error details:', error);
+    logger.error('Test failed:', error);
+    process.exit(1);
   }
 }
 
-// Run the test
-testSupabase();
+main();

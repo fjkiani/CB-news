@@ -3,8 +3,7 @@ import { PythonShell } from 'python-shell';
 import path from 'path';
 import { spawn } from 'child_process';
 import logger from '../../logger.js';
-
-const SupabaseStorage = require('../../../../src/services/storage/supabase/supabaseStorage.js');
+import { SupabaseStorage } from '../storage/supabase/supabaseStorage';
 
 interface DiffbotArticle {
   date: string;
@@ -27,7 +26,7 @@ interface PythonScraperResult {
 }
 
 export class NewsScraper {
-  private storage: SupabaseStorage;
+  private storage: typeof SupabaseStorage;
   private pythonPath: string;
   private lastProcessedTitle: string | null = null;
 

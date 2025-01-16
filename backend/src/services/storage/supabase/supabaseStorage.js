@@ -1,13 +1,51 @@
 // src/services/storage/supabase/supabaseStorage.js
 import { createClient } from '@supabase/supabase-js';
 import logger from '../../../logger.js';
+
 class SupabaseStorage {
-    constructor() {
-      this.supabase = createClient(
-        process.env.SUPABASE_URL,
-        process.env.SUPABASE_SERVICE_KEY
-      );
+  constructor() {
+    // Try all possible environment variable combinations
+    const supabaseUrl = 
+      process.env.VITE_SUPABASE_URL || 
+      process.env.SUPABASE_URL || 
+      process.env.DB_URL;
+
+    const supabaseKey = 
+      process.env.VITE_SUPABASE_KEY || 
+      process.env.SUPABASE_KEY || 
+      process.env.SERVICE_KEY;
+
+    // Debug environment variables
+    logger.info('Supabase environment check:', {
+      hasUrl: !!supabaseUrl,
+      hasKey: !!supabaseKey,
+      urlStart: supabaseUrl?.substring(0, 20) + '...',
+      envKeys: Object.keys(process.env).filter(key => 
+        key.includes('SUPABASE') || 
+        key.includes('DB_') || 
+        key.includes('SERVICE_') ||
+        key.includes('VITE_')
+      )
+    });
+
+    if (!supabaseUrl || !supabaseKey) {
+      const error = new Error('Missing Supabase credentials');
+      error.details = {
+        hasUrl: !!supabaseUrl,
+        hasKey: !!supabaseKey,
+        envKeys: Object.keys(process.env)
+      };
+      throw error;
     }
+
+    try {
+      this.supabase = createClient(supabaseUrl, supabaseKey);
+      logger.info('SupabaseStorage initialized successfully');
+    } catch (error) {
+      logger.error('Failed to create Supabase client:', error);
+      throw error;
+    }
+  }
 
   ensureDate(dateInput) {
     if (dateInput instanceof Date) {
@@ -18,189 +56,141 @@ class SupabaseStorage {
 
   async storeArticle(article) {
     try {
-      const publishDate = article.publishedAt || article.published_at || article.date || new Date().toISOString();
+      // Get the date from either publishedAt or date field
+      const articleDate = article.publishedAt || article.date;
       
       const articleData = {
         title: article.title,
         content: article.content,
         url: article.url,
-        published_at: this.ensureDate(publishDate),
+        published_at: this.ensureDate(articleDate),
         source: article.source || 'Trading Economics',
-        category: article.category,
-        sentiment_score: article.sentiment?.score,
-        sentiment_label: article.sentiment?.label,
+        category: article.category || 'Market News',
+        sentiment_score: article.sentiment?.score || 0,
+        sentiment_label: article.sentiment?.label || 'neutral',
         raw_data: article
       };
 
-      const { data, error } = await this.supabase
-        .from('articles')
-        .upsert(articleData, {
-          onConflict: 'url',
-          ignoreDuplicates: true
-        })
-        .select();
+      logger.info('Storing article:', {
+        title: articleData.title,
+        url: articleData.url,
+        date: articleDate
+      });
 
-      if (error) throw error;
-      return data?.[0] || null;
+      // First check if article exists
+      const { data: existing } = await this.supabase
+        .from('articles')
+        .select('id')
+        .eq('url', articleData.url)
+        .single();
+
+      if (existing) {
+        // Update existing article
+        const { data, error } = await this.supabase
+          .from('articles')
+          .update(articleData)
+          .eq('id', existing.id)
+          .select()
+          .single();
+
+        if (error) throw error;
+        return data;
+      } else {
+        // Insert new article
+        const { data, error } = await this.supabase
+          .from('articles')
+          .insert(articleData)
+          .select()
+          .single();
+
+        if (error) throw error;
+        return data;
+      }
     } catch (error) {
       logger.error('Failed to store article:', error);
       throw error;
     }
   }
 
-  async storeArticles(articles, source = 'node-cron') {
+  async storeArticles(articles) {
     try {
       // Remove duplicates from the input array based on URL
       const uniqueArticles = Array.from(
         new Map(articles.map(article => [article.url, article])).values()
       );
 
-      const articlesData = uniqueArticles.map(article => ({
-        title: article.title,
-        content: article.content,
-        url: article.url,
-        published_at: this.ensureDate(article.publishedAt),
-        source: article.source || 'Trading Economics',
-        category: article.category,
-        sentiment_score: article.sentiment?.score,
-        sentiment_label: article.sentiment?.label,
-        raw_data: article,
-        insertion_source: source
-      }));
+      logger.info(`Processing ${uniqueArticles.length} unique articles`);
 
-      console.log('Attempting Supabase upsert...');
-      
+      const articlesData = uniqueArticles.map(article => {
+        // Get the date from either publishedAt or date field
+        const articleDate = article.publishedAt || article.date;
+        
+        return {
+          title: article.title,
+          content: article.content,
+          url: article.url,
+          published_at: this.ensureDate(articleDate),
+          source: article.source || 'Trading Economics',
+          category: article.category || 'Market News',
+          sentiment_score: article.sentiment?.score || 0,
+          sentiment_label: article.sentiment?.label || 'neutral',
+          raw_data: article
+        };
+      });
+
+      // Log the first article's date for debugging
+      if (articlesData.length > 0) {
+        logger.info('First article date:', {
+          title: articlesData[0].title,
+          date: articlesData[0].published_at,
+          originalDate: uniqueArticles[0].date || uniqueArticles[0].publishedAt
+        });
+      }
+
+      // Use upsert with explicit conflict handling
       const { data, error } = await this.supabase
         .from('articles')
         .upsert(articlesData, {
           onConflict: 'url',
-          ignoreDuplicates: false,
-          count: 'exact'
+          ignoreDuplicates: false // We want to update existing articles
         })
-        .select('*');
-
-      if (error) {
-        console.error('Supabase error:', error);
-        throw error;
-      }
-
-      console.log('Supabase response:', {
-        success: !error,
-        inserted: data?.length || 0,
-        firstId: data?.[0]?.id,
-        firstTitle: data?.[0]?.title
-      });
-
-      return data;
-    } catch (error) {
-      console.error('Storage failed:', error);
-      throw error;
-    }
-  }
-
-  async getRecentArticles(limit = 100, lastTimestamp = null) {
-    let query = this.supabase
-      .from('articles')
-      .select('*')
-      .order('published_at', { ascending: false })
-      .limit(limit);
-
-    if (lastTimestamp) {
-      query = query.gt('published_at', lastTimestamp);
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
-    return data || [];
-  }
-
-  async getArticlesByCategory(category) {
-    try {
-      const { data, error } = await this.supabase
-        .from('articles')
-        .select('*')
-        .eq('category', category)
-        .order('published_at', { ascending: false });
+        .select();
 
       if (error) throw error;
-      if (!data?.length) {
-        logger.warn(`No articles found for category: ${category}`);
-      }
+      
+      logger.info(`Successfully stored ${data?.length || 0} articles`);
       return data || [];
     } catch (error) {
-      logger.error(`Failed to get articles for category ${category}:`, error);
+      logger.error('Failed to store articles:', error);
       throw error;
     }
   }
 
-  async searchArticles(query) {
+  async getRecentArticles(limit = 100) {
     try {
       const { data, error } = await this.supabase
         .from('articles')
         .select('*')
-        .textSearch('content', query)
-        .order('published_at', { ascending: false });
+        .order('published_at', { ascending: false })
+        .limit(limit);
 
       if (error) throw error;
-      if (!data?.length) {
-        logger.warn(`No articles found for search term: ${query}`);
-      }
-      return data || [];
+      
+      // Transform data for frontend
+      const transformedData = data?.map(article => ({
+        ...article,
+        publishedAt: article.published_at,
+        created_at: article.created_at || article.published_at // Fallback to published_at if created_at is null
+      })) || [];
+      
+      logger.info(`Retrieved ${transformedData.length} recent articles`);
+      return transformedData;
     } catch (error) {
-      logger.error(`Failed to search articles with query ${query}:`, error);
+      logger.error('Failed to get recent articles:', error);
       throw error;
     }
   }
+}
 
-  async getArticleById(id) {
-    const { data, error } = await this.supabase
-      .from('articles')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (error) throw error;
-    return data;
-  }
-
-  async deleteArticle(where) {
-    const { error } = await this.supabase
-      .from('articles')
-      .delete()
-      .eq('url', where.url);
-
-    if (error) throw error;
-  }
-
-  async getCategories() {
-    try {
-      const { data, error } = await this.supabase
-        .from('articles')
-        .select('category');
-
-      if (error) throw error;
-
-      const categories = data.map(article => article.category);
-      return [...new Set(categories)].filter(Boolean);
-    } catch (error) {
-      logger.error('Failed to fetch categories:', error);
-      throw error;
-    }
-  }
-
-  async getSampleArticle() {
-    try {
-      const { data, error } = await this.supabase
-        .from('articles')
-        .select('*')
-        .limit(1)
-        .single();
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      logger.error('Failed to get sample article:', error);
-      throw error;
-    }
-  }
-}export { SupabaseStorage };
+export { SupabaseStorage };
+export default SupabaseStorage;

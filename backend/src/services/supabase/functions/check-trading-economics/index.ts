@@ -56,6 +56,7 @@ serve(async (req) => {
         content: article.text,
         url: article.url,
         published_at: article.date,
+        publishedAt: article.date,
         source: 'Trading Economics',
         sentiment_score: article.sentiment || 0,
         sentiment_label: article.sentiment >= 0.1 ? 'positive' : article.sentiment <= -0.1 ? 'negative' : 'neutral',

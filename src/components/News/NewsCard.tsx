@@ -1,45 +1,77 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { ProcessedArticle } from '../../services/news/types';
 import { Clock, ExternalLink, TrendingUp, TrendingDown, Minus, Tag, BookOpen } from 'lucide-react';
-import { analyzeMarketImpact } from '../../services/analysis/marketImpactAnalyzer';
 
 interface NewsCardProps {
   article: ProcessedArticle;
 }
 
 export const NewsCard: React.FC<NewsCardProps> = ({ article }) => {
-  const [marketImpact, setMarketImpact] = useState<{
-    shortTerm: {
-      description: string;
-      confidence: number;
-    };
-  } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const getMarketImpact = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const impact = await analyzeMarketImpact(article.raw.content);
-        setMarketImpact(impact);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to analyze market impact');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (article.raw.content) {
-      getMarketImpact();
-    }
-  }, [article.raw.content]);
-
   const getSentimentIcon = () => {
     if (article.sentiment.score > 0.2) return <TrendingUp className="w-4 h-4 text-green-600" />;
     if (article.sentiment.score < -0.2) return <TrendingDown className="w-4 h-4 text-red-600" />;
     return <Minus className="w-4 h-4 text-gray-600" />;
+  };
+
+  const formatDate = (dateString: string | undefined | null) => {
+    try {
+      // Get the most reliable date
+      const dateToFormat = dateString || article.raw.created_at;
+      if (!dateToFormat) {
+        console.warn('No valid date available:', { 
+          title: article.raw.title,
+          publishedAt: dateString, 
+          created_at: article.raw.created_at 
+        });
+        return 'Date unavailable';
+      }
+
+      const date = new Date(dateToFormat);
+      
+      // Log date parsing for debugging
+      console.debug('Date parsing in NewsCard:', {
+        title: article.raw.title,
+        original: dateToFormat,
+        parsed: {
+          date: date,
+          isValid: !isNaN(date.getTime()),
+          utc: date.toUTCString(),
+          iso: date.toISOString()
+        },
+        timezone: {
+          local: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          target: 'America/New_York'
+        }
+      });
+      
+      // Check if date is valid
+      if (isNaN(date.getTime())) {
+        console.warn('Invalid date in NewsCard:', {
+          title: article.raw.title,
+          dateString: dateToFormat
+        });
+        return 'Invalid date';
+      }
+      
+      // Format in New York timezone
+      return new Intl.DateTimeFormat('en-US', {
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: 'numeric',
+        hour12: true,
+        timeZone: 'America/New_York',
+        timeZoneName: 'short'
+      }).format(date);
+    } catch (error) {
+      console.error('Date formatting error in NewsCard:', {
+        error,
+        title: article.raw.title,
+        dateString
+      });
+      return 'Date error';
+    }
   };
 
   return (
@@ -49,17 +81,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ article }) => {
       <div className="flex items-center gap-4 text-sm text-gray-600 mb-3">
         <div className="flex items-center gap-2 text-gray-500 text-sm">
           <Clock className="w-4 h-4" />
-          <span>
-            {new Date(article.raw.publishedAt).toLocaleString('en-US', {
-              timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-              year: 'numeric',
-              month: 'numeric',
-              day: 'numeric',
-              hour: 'numeric',
-              minute: 'numeric',
-              hour12: true
-            })}
-          </span>
+          <span>{formatDate(article.raw.publishedAt)}</span>
         </div>
         <div className="flex items-center gap-1">
           {getSentimentIcon()}
@@ -88,7 +110,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ article }) => {
           <span className="font-medium">Full Article</span>
         </div>
         <p className="text-gray-600 text-sm whitespace-pre-line">
-          {article.raw.content.replace(/\d+\s+(?:minutes?|hours?|days?)\s+ago/i, '').trim()}
+          {article.raw.content ? article.raw.content.replace(/\d+\s+(?:minutes?|hours?|days?)\s+ago/i, '').trim() : 'No content available'}
         </p>
       </div>
 
@@ -127,35 +149,6 @@ export const NewsCard: React.FC<NewsCardProps> = ({ article }) => {
             </span>
           ))}
         </div>
-      </div>
-
-      {/* Market Impact Analysis */}
-      <div className="bg-gray-50 rounded-md p-4 mb-4">
-        <div className="flex items-center gap-2 mb-2">
-          <TrendingUp className="w-4 h-4 text-gray-600" />
-          <span className="font-medium text-gray-700">Market Impact</span>
-        </div>
-        
-        {loading ? (
-          <div className="animate-pulse h-20 bg-gray-200 rounded" />
-        ) : error ? (
-          <div className="text-red-600 text-sm">
-            {error}
-          </div>
-        ) : marketImpact ? (
-          <>
-            <p className="text-gray-600 text-sm mb-2">
-              {marketImpact.shortTerm.description}
-            </p>
-            <div className="flex items-center gap-2 text-xs text-gray-500">
-              <span>Confidence: {(marketImpact.shortTerm.confidence * 100).toFixed(1)}%</span>
-            </div>
-          </>
-        ) : (
-          <p className="text-gray-600 text-sm">
-            No market impact analysis available
-          </p>
-        )}
       </div>
 
       {/* Read more link */}

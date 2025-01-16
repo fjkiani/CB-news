@@ -14,123 +14,202 @@ const cacheService = new CacheService({
 // Cache settings
 const CACHE_DURATION = parseInt(process.env.CACHE_DURATION || '900', 10); // Convert to seconds for Redis
 
-async function scrapeNews(forceFresh = false) {
-  const startTime = Date.now();
+interface Article {
+  title: string;
+  content: string;
+  url: string;
+  publishedAt: string;
+  source: string;
+  category: string;
+  type: string;
+  sentiment: {
+    score: number;
+    label: string;
+    confidence: number;
+  };
+  summary: string;
+  author: string;
+  id: string;
+  naturalLanguage: {
+    summary: string;
+    topics: string[];
+  };
+  tags: any[];
+}
+
+interface DiffbotPost {
+  type?: string;
+  title?: string;
+  text?: string;
+  html?: string;
+  content?: string;
+  summary?: string;
+  description?: string;
+  pageUrl?: string;
+  url?: string;
+  date?: string;
+  estimatedDate?: string;
+  created?: string;
+  author?: string;
+  username?: string;
+  creator?: string;
+  sentiment?: number;
+  category?: string;
+  tags?: Array<{ label: string }>;
+  discussion?: {
+    posts?: DiffbotPost[];
+  };
+}
+
+export async function scrapeNews(forceFresh = false) {
+  const logger = getLogger();
+  logger.info('Starting scrape operation...', { forceFresh });
+
   try {
-    const targetUrl = process.env.TARGET_URL || 'https://tradingeconomics.com/stream?c=united+states';
-    const cacheKey = `diffbot:${targetUrl}`;
-
-    // Try to get from cache first, unless forceFresh is true
-    if (!forceFresh) {
-      const cachedData = await cacheService.get(cacheKey);
-      if (cachedData) {
-        const duration = Date.now() - startTime;
-        logger.info('Cache HIT', {
-          duration: `${duration}ms`,
-          articleCount: cachedData.length,
-          cacheKey
-        });
-        return cachedData;
-      }
-      logger.info('Cache MISS', { cacheKey });
+    if (forceFresh) {
+      await clearCache();
+      logger.info('Cleared Redis cache');
     }
 
-    logger.info('Fetching fresh data from Diffbot', {
-      forceFresh,
-      targetUrl
-    });
-
-    // Validate environment variables
-    if (!process.env.DIFFBOT_TOKEN) {
-      throw new Error('DIFFBOT_TOKEN is not configured');
-    }
-
-    const response = await axios.get(process.env.DIFFBOT_API_URL || 'https://api.diffbot.com/v3/article', {
+    const targetUrl = 'https://tradingeconomics.com/united-states/news';
+    const response = await axios.get('https://api.diffbot.com/v3/analyze', {
       params: {
         url: targetUrl,
         token: process.env.DIFFBOT_TOKEN,
-        discussion: true,
-        fields: DIFFBOT_FIELDS.join(',')
-      },
-      timeout: 10000,
-      validateStatus: status => status === 200
+        naturalLanguage: 'summary'
+      }
     });
 
-    logger.info('Diffbot response received', {
-      status: response.status,
+    logger.info('Raw Diffbot response structure:', {
       hasObjects: !!response.data.objects,
       objectCount: response.data.objects?.length,
-      hasPosts: !!response.data.objects?.[0]?.discussion?.posts
+      types: response.data.objects?.map(obj => obj.type),
+      firstObject: response.data.objects?.[0] ? {
+        type: response.data.objects[0].type,
+        hasText: !!response.data.objects[0].text,
+        hasTitle: !!response.data.objects[0].title,
+        hasDate: !!response.data.objects[0].date
+      } : null
     });
 
-    if (!response.data.objects?.[0]?.discussion?.posts) {
-      throw new Error('No posts found in Diffbot response');
+    const articles = [];
+    
+    // Process all objects from the analyze API
+    if (response.data.objects) {
+      for (const obj of response.data.objects) {
+        // Skip non-article and non-post objects
+        if (!['article', 'post'].includes(obj.type)) {
+          continue;
+        }
+
+        // Skip if no content or date
+        if (!obj.text || !obj.date) {
+          logger.debug('Skipping object without required fields', {
+            type: obj.type,
+            hasText: !!obj.text,
+            hasDate: !!obj.date,
+            title: obj.title
+          });
+          continue;
+        }
+
+        articles.push({
+          title: obj.title || `${obj.author || 'Trading Economics'} Update`,
+          content: obj.text,
+          url: obj.pageUrl || obj.url || targetUrl,
+          published_at: new Date(obj.date || obj.estimatedDate).toISOString(),
+          source: getSourceFromAuthor(obj.author),
+          category: 'Market News',
+          sentiment_score: obj.sentiment || 0,
+          summary: obj.naturalLanguage?.summary || ''
+        });
+
+        // If this object has discussion posts, add them too
+        if (obj.discussion?.posts) {
+          for (const post of obj.discussion.posts) {
+            if (post.text && post.date) {
+              articles.push({
+                title: post.title || `${post.author || 'Trading Economics'} Update`,
+                content: post.text,
+                url: post.pageUrl || post.authorUrl || targetUrl,
+                published_at: new Date(post.date).toISOString(),
+                source: getSourceFromAuthor(post.author),
+                category: 'Market News',
+                sentiment_score: post.sentiment || 0,
+                summary: post.naturalLanguage?.summary || ''
+              });
+            }
+          }
+        }
+      }
     }
 
-    const posts = response.data.objects[0].discussion.posts;
-    const articles = posts.map((post, index) => ({
-      title: post.author || 'Economic Update',
-      content: post.text || '',
-      url: post.authorUrl || targetUrl,
-      publishedAt: post.date || new Date().toISOString(),
-      source: 'Trading Economics',
-      category: post.authorUrl?.split('?i=')?.[1] || 'General',
-      sentiment: {
-        score: post.sentiment || 0,
-        label: getSentimentLabel(post.sentiment || 0),
-        confidence: Math.abs(post.sentiment || 0)
-      },
-      summary: post.text || '',
-      author: post.author || 'Trading Economics',
-      id: `te-${Date.now()}-${index}`
-    }));
-
-    // Log timing for API call
-    const apiDuration = Date.now() - startTime;
-    logger.info('Diffbot API call completed', {
-      duration: `${apiDuration}ms`,
-      articleCount: articles.length
-    });
-
-    // Save to cache with timing
-    const cacheStart = Date.now();
-    await cacheService.set(cacheKey, articles, CACHE_DURATION);
-    const cacheDuration = Date.now() - cacheStart;
-    
-    logger.info('Cache updated', {
-      cacheDuration: `${cacheDuration}ms`,
-      articleCount: articles.length,
-      cacheDurationSeconds: CACHE_DURATION
+    logger.info('Processed articles:', {
+      total: articles.length,
+      sources: [...new Set(articles.map(a => a.source))],
+      dateRange: {
+        newest: articles[0]?.published_at,
+        oldest: articles[articles.length - 1]?.published_at
+      }
     });
 
     return articles;
-
   } catch (error) {
-    logger.error('Scraping failed:', {
-      message: error.message,
-      code: error.code,
-      response: error.response?.data,
-      config: {
-        url: error.config?.url,
-        params: error.config?.params
-      }
-    });
-
-    // Try to return cached data on error
-    try {
-      const cacheKey = `diffbot:${process.env.TARGET_URL}`;
-      const cachedData = await cacheService.get(cacheKey);
-      if (cachedData && cachedData.length > 0) {
-        logger.info(`Returning ${cachedData.length} cached articles`);
-        return cachedData;
-      }
-    } catch (cacheError) {
-      logger.error('Cache fallback failed:', cacheError);
-    }
-
-    // Return empty array if everything fails
-    return [];
+    logger.error('Scrape operation failed:', error);
+    throw error;
   }
+}
+
+function getSourceFromAuthor(author: string | null | undefined): string {
+  // Handle null/undefined/empty cases
+  if (!author || typeof author !== 'string') {
+    logger.debug('No author provided or invalid type', { author });
+    return 'Trading Economics';
+  }
+  
+  // Known Trading Economics author variations
+  const tradingEconomicsAuthors = ['stocks', 'Stock Market', 'Markets', 'Trading Economics'];
+  if (tradingEconomicsAuthors.includes(author)) {
+    logger.debug('Matched Trading Economics author variation', { author });
+    return 'Trading Economics';
+  }
+  
+  // If it's a URL, extract domain
+  if (author.toLowerCase().startsWith('http')) {
+    try {
+      const url = new URL(author);
+      // Handle cases where hostname might be empty or malformed
+      if (!url.hostname) {
+        logger.warn('URL parsing resulted in empty hostname', { author });
+        return 'Trading Economics';
+      }
+      
+      const cleanHostname = url.hostname.replace(/^www\./, '');
+      if (!cleanHostname) {
+        logger.warn('Hostname cleaning resulted in empty string', { author, originalHostname: url.hostname });
+        return 'Trading Economics';
+      }
+      
+      logger.debug('Successfully extracted hostname from URL', { 
+        author,
+        originalHostname: url.hostname,
+        cleanHostname 
+      });
+      return cleanHostname;
+      
+    } catch (e) {
+      logger.warn('Failed to parse author URL', { 
+        author,
+        error: (e as Error).message,
+        errorType: (e as Error).name
+      });
+      return 'Trading Economics';
+    }
+  }
+  
+  // Return original author if it's not a URL
+  logger.debug('Using original author value', { author });
+  return author;
 }
 
 // Helper function
