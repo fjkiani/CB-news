@@ -1,0 +1,60 @@
+personal_information:
+  name: "Fahad"
+  surname: "Kiani"
+  email: "fahad@jedilabs.org"
+  phone: "13476842656"
+  city: "New York"
+  country: "USA"
+  linkedin: "https://www.linkedin.com/in/fjkiani"
+  github: "http://www.github.com/fjkiani"
+  website: "http://www.jedilabs.org"
+
+experience_details:
+  - company: "Jedi Labs"
+    position: "Founder & Lead Engineer"
+    current: true
+    key_responsibilities:
+      - "Leading development of AI-powered solutions and automation frameworks"
+
+skills:
+  programming_languages:
+    - "Python"
+    - "JavaScript"
+    - "TypeScript"
+  
+  ai_ml:
+    - "Machine Learning"
+    - "Natural Language Processing"
+    - "LLMs"
+  
+  cloud_services:
+    - "AWS"
+    - "GCP"
+    - "Azure"
+
+# Optional - can remain commented out if not needed
+# self_identification:
+#   ethnicity: ""
+#   gender: ""
+#   age_range: ""
+
+browser_settings:
+  user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+  viewport_width: 1920
+  viewport_height: 1080
+  locale: "en-US"
+  timezone: "America/New_York"
+
+behavior_settings:
+  min_delay: 500
+  max_delay: 2000
+  scroll_behavior: true
+  mouse_movements: true
+  typing_speed: "natural"  # fast, natural, slow
+
+proxy_settings:
+  enabled: false
+  url: "http://proxy.example.com:8080"
+  username: ""
+  password: ""
+  rotate_interval: 3600  # seconds

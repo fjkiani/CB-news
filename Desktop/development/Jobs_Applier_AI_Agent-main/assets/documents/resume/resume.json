@@ -1,0 +1,41 @@
+{
+  "personal_information": {
+    "name": "Fahad Kiani",
+    "email": "fahad@jedilabs.org",
+    "phone": "13476842656",
+    "location": {
+      "city": "New York",
+      "country": "USA"
+    },
+    "links": {
+      "linkedin": "https://www.linkedin.com/in/fjkiani",
+      "github": "http://www.github.com/fjkiani",
+      "portfolio": "http://www.jedilabs.org"
+    }
+  },
+  "experience": [
+    {
+      "title": "Founder & Lead Engineer",
+      "company": "Jedi Labs",
+      "start_date": "2020-01",
+      "end_date": "present",
+      "description": "Leading development of AI-powered solutions...",
+      "key_achievement": "Developed and deployed multiple AI automation frameworks",
+      "technologies": ["Python", "JavaScript", "AI/ML", "Cloud Services"]
+    }
+  ],
+  "skills": {
+    "programming": ["Python", "JavaScript", "TypeScript"],
+    "ai_ml": ["Machine Learning", "NLP", "LLMs"],
+    "cloud": ["AWS", "GCP", "Azure"],
+    "tools": ["Git", "Docker", "Kubernetes"]
+  },
+  "projects": [
+    {
+      "name": "AI Job Application Agent",
+      "description": "Automated job application system using AI",
+      "technologies": ["Python", "AI/ML", "Automation"]
+    }
+  ]
+}
+  

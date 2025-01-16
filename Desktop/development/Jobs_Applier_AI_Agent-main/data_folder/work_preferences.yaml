@@ -1,0 +1,34 @@
+remote: true
+experience_level:
+  internship: false
+  entry: false
+  associate: false
+  mid_senior_level: true
+  director: false
+  executive: false
+job_types:
+  full_time: true
+  contract: true
+  part_time: false
+  temporary: false
+  internship: false
+  other: false
+  volunteer: false
+date:
+  all_time: false
+  month: true
+  week: false
+  24_hours: false
+positions:
+  - "Machine Learning Engineer"
+  - "Solutions Engineer"
+  - "AI Engineer"
+  - "Data Engineer"
+locations:
+  - "New York"
+  - "San Francisco"
+  - "Remote"
+location_blacklist: []
+distance: 25
+company_blacklist: []
+title_blacklist: []
