@@ -1,101 +1,64 @@
-const express = require('express');
+import express from 'express';
+import logger from '../logger.js';
+import Redis from 'ioredis';
+import DeepSeekService from '../services/DeepSeekService.js';
+
 const router = express.Router();
-const { HfInference } = require('@huggingface/inference');
-const logger = require('../logger');
-const marketIndicators = require('../config/marketIndicators');
 
-// In-memory cache for analysis results
-const analysisCache = new Map();
-const CACHE_DURATION = 1000 * 60 * 60; // 1 hour
+// Initialize Redis client
+const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
 
-function getCacheKey(content) {
-  // Use first 100 chars as key since similar articles will have same beginning
-  return content.slice(0, 100);
+// Initialize DeepSeek service
+const deepSeekService = new DeepSeekService();
+
+const CACHE_DURATION = 3600; // 1 hour in seconds
+const ANALYSIS_TIMEOUT = 120000; // 2 minutes in milliseconds
+
+// Queue for managing concurrent requests
+const requestQueue = new Map();
+
+// Helper function to create consistent cache keys
+function createCacheKey(content) {
+  return `analysis:${Buffer.from(content.slice(0, 100)).toString('base64')}`;
 }
 
-async function getAnalysis(content) {
-  const cacheKey = getCacheKey(content);
-  
-  // Check cache
-  const cached = analysisCache.get(cacheKey);
-  if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
-    logger.info('Analysis cache HIT');
-    return cached.result;
+// Wrapper for Redis get with error handling
+async function getCachedAnalysis(key) {
+  try {
+    const cached = await redis.get(key);
+    if (cached) {
+      logger.info('Analysis cache HIT', { key });
+      return JSON.parse(cached);
+    }
+  } catch (error) {
+    logger.error('Redis get error:', error);
   }
-
-  logger.info('Analysis cache MISS - performing new analysis');
-  
-  // Perform new analysis
-  const result = analyzeContent(content, marketIndicators);
-  
-  // Cache the result
-  analysisCache.set(cacheKey, {
-    timestamp: Date.now(),
-    result
-  });
-
-  return result;
+  return null;
 }
 
-function analyzeContent(content, indicators) {
-  const lowerContent = content.toLowerCase();
-  const analysis = {
-    sentiment: 'neutral',
-    sectors: [],
-    topics: [],
-    details: []
-  };
-
-  // Check sentiment
-  const hasBearish = indicators.bearish.some(word => lowerContent.includes(word));
-  const hasBullish = indicators.bullish.some(word => lowerContent.includes(word));
-  
-  if (hasBearish && !hasBullish) {
-    analysis.sentiment = 'bearish';
-  } else if (hasBullish && !hasBearish) {
-    analysis.sentiment = 'bullish';
+// Wrapper for Redis set with error handling
+async function setCachedAnalysis(key, value) {
+  try {
+    await redis.set(key, JSON.stringify(value), 'EX', CACHE_DURATION);
+    logger.info('Analysis cached', { key });
+  } catch (error) {
+    logger.error('Redis set error:', error);
   }
+}
 
-  // Check sectors
-  for (const [sector, keywords] of Object.entries(indicators.sectors)) {
-    if (keywords.some(word => lowerContent.includes(word))) {
-      analysis.sectors.push(sector);
-    }
-  }
+// Queue management functions
+function isRequestInQueue(key) {
+  return requestQueue.has(key);
+}
 
-  // Check topics
-  for (const [topic, keywords] of Object.entries(indicators.topics)) {
-    if (keywords.some(word => lowerContent.includes(word))) {
-      analysis.topics.push(topic);
-    }
-  }
-
-  // Generate readable analysis
-  if (analysis.sentiment !== 'neutral') {
-    analysis.details.push(`Market showing ${analysis.sentiment} signals.`);
-  }
-
-  if (analysis.sectors.length > 0) {
-    analysis.details.push(`Affected sectors: ${analysis.sectors.join(', ')}.`);
-  }
-
-  if (analysis.topics.length > 0) {
-    analysis.details.push(`Key factors: ${analysis.topics.join(', ')}.`);
-  }
-
-  return {
-    analysis: analysis.details.join(' ') || 'No clear market signals detected.',
-    sentiment: analysis.sentiment,
-    sectors: analysis.sectors,
-    topics: analysis.topics,
-    confidence: 0.6,
-    source: 'rule-based'
-  };
+function addToQueue(key, promise) {
+  requestQueue.set(key, promise);
+  return promise.finally(() => requestQueue.delete(key));
 }
 
 router.post('/market-impact', async (req, res) => {
   try {
-    const { content } = req.body;
+    const { content, title, url, source, publishedAt } = req.body;
     
     if (!content) {
       return res.status(400).json({
@@ -103,20 +66,83 @@ router.post('/market-impact', async (req, res) => {
       });
     }
 
-    // Use configurable analysis
-    const result = analyzeContent(content, marketIndicators);
-    res.json(result);
+    // Create cache key
+    const cacheKey = createCacheKey(content);
+
+    // Check cache first
+    const cached = await getCachedAnalysis(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
+    // Check if this request is already being processed
+    if (isRequestInQueue(cacheKey)) {
+      logger.info('Request already in queue, waiting for result', { cacheKey });
+      const result = await requestQueue.get(cacheKey);
+      return res.json(result);
+    }
+
+    // Prepare article object
+    const article = {
+      content,
+      title,
+      url,
+      source,
+      publishedAt
+    };
+
+    // Create analysis promise with timeout
+    const analysisPromise = Promise.race([
+      deepSeekService.analyzeContent(article),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Analysis timeout')), ANALYSIS_TIMEOUT)
+      )
+    ]);
+
+    // Add to queue and process
+    const queuedPromise = addToQueue(cacheKey, analysisPromise);
+
+    try {
+      const result = await queuedPromise;
+      
+      // Cache the result
+      await setCachedAnalysis(cacheKey, result);
+      
+      return res.json(result);
+    } catch (error) {
+      if (error.message === 'Analysis timeout') {
+        return res.status(504).json({
+          error: 'Request timeout',
+          message: 'The request took too long to process'
+        });
+      }
+      throw error;
+    }
 
   } catch (error) {
-    logger.error('Analysis error:', error);
-    res.status(500).json({
-      error: 'Analysis failed',
-      message: error.message
+    logger.error('Analysis error:', {
+      error: error.message,
+      stack: error.stack
     });
+
+    // Send appropriate error response
+    if (error.message.includes('Rate limit exceeded')) {
+      return res.status(429).json({
+        error: 'Too many requests',
+        message: 'Please try again later'
+      });
+    }
+
+    // Don't send multiple responses
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: 'Analysis failed',
+        message: error.message
+      });
+    }
   }
 });
 
-// Batch analysis endpoint
 router.post('/batch-market-impact', async (req, res) => {
   try {
     const { articles } = req.body;
@@ -127,20 +153,56 @@ router.post('/batch-market-impact', async (req, res) => {
 
     const results = await Promise.all(
       articles.map(async article => {
-        const analysis = await getAnalysis(article.content);
-        return {
-          articleId: article.id,
-          ...analysis
-        };
+        const cacheKey = createCacheKey(article.content);
+        
+        // Try cache first
+        const cached = await getCachedAnalysis(cacheKey);
+        if (cached) {
+          return { articleId: article.id, ...cached };
+        }
+
+        // Get fresh analysis
+        const analysis = await deepSeekService.analyzeContent(article);
+        await setCachedAnalysis(cacheKey, analysis);
+        
+        return { articleId: article.id, ...analysis };
       })
     );
 
     res.json(results);
 
   } catch (error) {
-    logger.error('Batch analysis error:', error);
-    res.status(500).json({ error: 'Analysis failed' });
+    logger.error('Batch analysis error:', {
+      error: error.message,
+      stack: error.stack
+    });
+    
+    if (error.message.includes('Rate limit exceeded')) {
+      return res.status(429).json({
+        error: 'Too many requests',
+        message: 'Please try again later'
+      });
+    }
+
+    res.status(500).json({ 
+      error: 'Analysis failed',
+      message: error.message
+    });
   }
 });
 
-module.exports = router;
+// Cache management endpoint
+router.post('/clear-cache', async (req, res) => {
+  try {
+    const keys = await redis.keys('analysis:*');
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
+    res.json({ message: `Cleared ${keys.length} cached analyses` });
+  } catch (error) {
+    logger.error('Cache clear error:', error);
+    res.status(500).json({ error: 'Failed to clear cache' });
+  }
+});
+
+export default router;
