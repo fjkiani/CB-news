@@ -1,25 +1,50 @@
-const express = require('express');
+import express from 'express';
+import logger from '../logger.js';
+
 const router = express.Router();
-const { scrapeNews, forceRefresh } = require('../scraper');
+let storage = null;
 
-// Regular endpoint - uses cache
-router.get('/trading-economics', async (req, res) => {
-  try {
-    const news = await scrapeNews();
-    res.json(news);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+export function initializeRoutes(storageInstance) {
+  storage = storageInstance;
 
-// Force refresh endpoint
-router.get('/trading-economics/refresh', async (req, res) => {
-  try {
-    const news = await forceRefresh();
-    res.json(news);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+  // Add root endpoint
+  router.get('/', async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit) || 100;
+      const { articles } = await storage.getRecentArticles(limit);
+      res.json(articles);
+    } catch (error) {
+      logger.error('Failed to fetch recent articles:', error);
+      res.status(500).json({ error: 'Failed to fetch recent articles' });
+    }
+  });
 
-module.exports = router; 
+  router.get('/recent', async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit) || 100;
+      const { articles } = await storage.getRecentArticles(limit);
+      res.json(articles);
+    } catch (error) {
+      logger.error('Failed to fetch recent articles:', error);
+      res.status(500).json({ error: 'Failed to fetch recent articles' });
+    }
+  });
+
+  router.get('/search', async (req, res) => {
+    try {
+      const { query } = req.query;
+      if (!query) {
+        return res.status(400).json({ error: 'Search query is required' });
+      }
+      const articles = await storage.searchArticles(query);
+      res.json(articles);
+    } catch (error) {
+      logger.error('Failed to search articles:', error);
+      res.status(500).json({ error: 'Failed to search articles' });
+    }
+  });
+
+  return router;
+}
+
+export default router;

@@ -10,10 +10,19 @@ const config = {
   CORS: {
     ORIGINS: process.env.NODE_ENV === 'production' 
       ? ['https://your-production-domain.com']
-      : ['http://localhost:5173', 'http://localhost:5174'],
-    METHODS: ['GET'],
-    HEADERS: ['Content-Type'],
+      : ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000'],
+    METHODS: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD', 'PATCH'],
+    HEADERS: [
+      'Content-Type',
+      'Authorization',
+      'Accept',
+      'Origin',
+      'X-Requested-With',
+      'Access-Control-Request-Method',
+      'Access-Control-Request-Headers'
+    ],
+    CREDENTIALS: true
   }
 };
 
-module.exports = config;
+export default config;

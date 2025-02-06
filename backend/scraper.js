@@ -26,13 +26,18 @@ async function scrapeNews() {
 
     const articles = await page.evaluate(() => {
       const items = document.querySelectorAll('.stream-item');
-      return Array.from(items).map(item => ({
-        title: item.querySelector('.title')?.textContent?.trim() || '',
-        content: item.querySelector('.description')?.textContent?.trim() || '',
-        url: item.querySelector('a')?.href || '',
-        publishedAt: item.querySelector('.date')?.getAttribute('data-value') || new Date().toISOString(),
-        source: 'Trading Economics'
-      }));
+      return Array.from(items).map(item => {
+        const rawDate = item.querySelector('.date')?.getAttribute('data-value');
+        const publishedAt = rawDate ? new Date(rawDate).toISOString() : new Date().toISOString();
+        
+        return {
+          title: item.querySelector('.title')?.textContent?.trim() || '',
+          content: item.querySelector('.description')?.textContent?.trim() || '',
+          url: item.querySelector('a')?.href || '',
+          publishedAt,
+          source: 'Trading Economics'
+        };
+      });
     });
 
     return articles;
